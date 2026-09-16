@@ -302,7 +302,7 @@
 
 <script>
 // ==== 設定：GASウェブアプリのURLをここに設定してください ====
-const WEBAPP_URL = 'PASTE_YOUR_GAS_WEBAPP_URL_HERE';
+const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyhBewhP-dAjrW6WCCQtV-kT4A5i_10MfgsvbGBq-GZDFRpSGE5yq-nYHBaNInpyU64/exec';
 
 let deals = [];
 let showLost = false;
@@ -553,7 +553,7 @@ function startPolling(){
 }
 
 if(WEBAPP_URL.indexOf('PASTE_YOUR') === 0){
-  document.getElementById('board').innerHTML =https://script.google.com/macros/s/AKfycbyhBewhP-dAjrW6WCCQtV-kT4A5i_10MfgsvbGBq-GZDFRpSGE5yq-nYHBaNInpyU64/exec
+  document.getElementById('board').innerHTML =
     '<div style="padding:40px; color:var(--ink-soft);">WEBAPP_URL が未設定です。index.html内のWEBAPP_URLにGASデプロイURLを設定してください。</div>';
 } else {
   loadDeals();
