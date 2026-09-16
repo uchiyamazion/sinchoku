@@ -77,9 +77,21 @@
     max-height: calc(100vh - 175px);
   }
   .col.dragover{ outline:2px dashed var(--navy); outline-offset:-2px; }
-  .col-head{ padding:12px 13px 10px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; }
+  .col-head{ padding:12px 13px 10px; border-bottom:1px solid var(--line); }
+  .col-head-top{ display:flex; align-items:center; justify-content:space-between; }
   .col-head .label{ font-size:13px; font-weight:700; }
   .col-head .count{ font-size:11px; font-family:'IBM Plex Mono',monospace; color:var(--ink-soft); background:var(--grey-soft); padding:1px 7px; border-radius:10px; }
+  .col-amt{ font-size:11.5px; font-weight:600; color:var(--navy); margin-top:5px; }
+  .col-amt:empty{ display:none; }
+
+  #summaryBar{
+    margin:14px 28px 0; padding:12px 16px; background:rgba(255,255,255,.75);
+    border:1px solid var(--line); border-radius:8px;
+    display:flex; flex-wrap:wrap; gap:20px; font-size:12.5px;
+  }
+  #summaryBar .s-item{ display:flex; flex-direction:column; gap:2px; }
+  #summaryBar .s-label{ font-size:10.5px; color:var(--ink-soft); }
+  #summaryBar .s-val{ font-family:'IBM Plex Mono',monospace; font-weight:700; font-size:14.5px; color:var(--navy); }
   .col-body{ padding:9px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:8px; }
   .col-body:empty::after{ content:"案件なし"; display:block; text-align:center; color:var(--grey); font-size:11.5px; padding:16px 0; }
 
@@ -198,29 +210,49 @@
   <div id="loadingText">読み込み中…</div>
 </div>
 
+<div id="summaryBar"></div>
+
 <div class="board" id="board" style="display:none;">
   <div class="col" data-status="">
-    <div class="col-head"><span class="label">未設定</span><span class="count mono" id="cnt-未設定">0</span></div>
+    <div class="col-head">
+      <div class="col-head-top"><span class="label">未設定</span><span class="count mono" id="cnt-未設定">0</span></div>
+      <div class="col-amt mono" id="amt-未設定"></div>
+    </div>
     <div class="col-body" id="col-未設定"></div>
   </div>
   <div class="col" data-status="見積中">
-    <div class="col-head"><span class="label">見積提出中</span><span class="count mono" id="cnt-見積中">0</span></div>
+    <div class="col-head">
+      <div class="col-head-top"><span class="label">見積提出中</span><span class="count mono" id="cnt-見積中">0</span></div>
+      <div class="col-amt mono" id="amt-見積中"></div>
+    </div>
     <div class="col-body" id="col-見積中"></div>
   </div>
   <div class="col" data-status="受注">
-    <div class="col-head"><span class="label">受注</span><span class="count mono" id="cnt-受注">0</span></div>
+    <div class="col-head">
+      <div class="col-head-top"><span class="label">受注</span><span class="count mono" id="cnt-受注">0</span></div>
+      <div class="col-amt mono" id="amt-受注"></div>
+    </div>
     <div class="col-body" id="col-受注"></div>
   </div>
   <div class="col" data-status="工事中">
-    <div class="col-head"><span class="label">工事中</span><span class="count mono" id="cnt-工事中">0</span></div>
+    <div class="col-head">
+      <div class="col-head-top"><span class="label">工事中</span><span class="count mono" id="cnt-工事中">0</span></div>
+      <div class="col-amt mono" id="amt-工事中"></div>
+    </div>
     <div class="col-body" id="col-工事中"></div>
   </div>
   <div class="col" data-status="完了">
-    <div class="col-head"><span class="label">完了</span><span class="count mono" id="cnt-完了">0</span></div>
+    <div class="col-head">
+      <div class="col-head-top"><span class="label">完了</span><span class="count mono" id="cnt-完了">0</span></div>
+      <div class="col-amt mono" id="amt-完了"></div>
+    </div>
     <div class="col-body" id="col-完了"></div>
   </div>
   <div class="col" data-status="失注" id="lostCol">
-    <div class="col-head"><span class="label">失注</span><span class="count mono" id="cnt-失注">0</span></div>
+    <div class="col-head">
+      <div class="col-head-top"><span class="label">失注</span><span class="count mono" id="cnt-失注">0</span></div>
+      <div class="col-amt mono" id="amt-失注"></div>
+    </div>
     <div class="col-body" id="col-失注"></div>
   </div>
 </div>
@@ -461,10 +493,25 @@ function render(){
     const list = sortDeals(visible.filter(d => effStatus(d) === status));
     const key = status || '未設定';
     document.getElementById(`cnt-${key}`).textContent = list.length;
+    const colTotal = list.reduce((sum, d) => sum + amountOf(d), 0);
+    document.getElementById(`amt-${key}`).textContent = colTotal ? fmtYen(colTotal) : '';
     const body = document.getElementById(`col-${key}`);
     body.innerHTML = '';
     list.forEach(d => body.appendChild(renderCard(d, conflictIds.has(d.id))));
   });
+
+  // 全体サマリー（現在の絞り込み条件・失注表示設定を反映）
+  const summaryDeals = showLost ? visible : visible.filter(d => effStatus(d) !== '失注');
+  const totalQuote = summaryDeals.reduce((s,d) => s + (Number(d.quoteAmount)||0), 0);
+  const totalConfirmed = summaryDeals.filter(d => d.confirmedAmount !== '' && d.confirmedAmount != null)
+    .reduce((s,d) => s + (Number(d.confirmedAmount)||0), 0);
+  const totalAll = summaryDeals.reduce((s,d) => s + amountOf(d), 0);
+  document.getElementById('summaryBar').innerHTML = `
+    <div class="s-item"><span class="s-label">表示中の件数</span><span class="s-val">${summaryDeals.length}件</span></div>
+    <div class="s-item"><span class="s-label">合計金額（確定優先）</span><span class="s-val">${fmtYen(totalAll)}</span></div>
+    <div class="s-item"><span class="s-label">見積金額合計</span><span class="s-val">${fmtYen(totalQuote)}</span></div>
+    <div class="s-item"><span class="s-label">確定金額合計</span><span class="s-val">${fmtYen(totalConfirmed)}</span></div>
+  `;
 
   document.getElementById('lostCol').style.display = showLost ? 'flex' : 'none';
 }
