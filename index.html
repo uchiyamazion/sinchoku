@@ -151,6 +151,18 @@
     header{ flex-direction:column; align-items:flex-start; }
     .field-grid, .readonly-grid{ grid-template-columns:1fr; }
   }
+
+  #loadingOverlay{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:12px; padding:70px 20px; color:var(--ink-soft); font-size:13px;
+  }
+  #loadingOverlay.hidden{ display:none; }
+  .spinner{
+    width:28px; height:28px; border-radius:50%;
+    border:3px solid var(--navy-soft); border-top-color:var(--navy);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin{ to{ transform: rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -181,7 +193,12 @@
 
 <div id="conflictBanner"></div>
 
-<div class="board" id="board">
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <div id="loadingText">読み込み中…</div>
+</div>
+
+<div class="board" id="board" style="display:none;">
   <div class="col" data-status="">
     <div class="col-head"><span class="label">未設定</span><span class="count mono" id="cnt-未設定">0</span></div>
     <div class="col-body" id="col-未設定"></div>
@@ -287,6 +304,43 @@ function gasPost(action, payload){
     headers:{ 'Content-Type':'text/plain;charset=utf-8' },
     body: JSON.stringify({ action, payload })
   }).then(r => r.json());
+}
+
+// 経過時間（＋Content-Lengthが取れれば%）を表示しながら取得する
+async function gasGetWithProgress(action, onProgress){
+  const url = `${WEBAPP_URL}?${new URLSearchParams({ action }).toString()}`;
+  const start = Date.now();
+  const timer = setInterval(() => {
+    onProgress({ elapsed: (Date.now() - start) / 1000, percent: null });
+  }, 200);
+
+  try{
+    const res = await fetch(url);
+    const contentLength = res.headers.get('Content-Length');
+
+    if(contentLength && res.body && res.body.getReader){
+      const total = parseInt(contentLength, 10);
+      let loaded = 0;
+      const reader = res.body.getReader();
+      const chunks = [];
+      while(true){
+        const { done, value } = await reader.read();
+        if(done) break;
+        chunks.push(value);
+        loaded += value.length;
+        onProgress({ elapsed: (Date.now() - start) / 1000, percent: Math.min(99, Math.round(loaded / total * 100)) });
+      }
+      const text = await new Blob(chunks).text();
+      onProgress({ elapsed: (Date.now() - start) / 1000, percent: 100 });
+      return JSON.parse(text);
+    } else {
+      const json = await res.json();
+      onProgress({ elapsed: (Date.now() - start) / 1000, percent: 100 });
+      return json;
+    }
+  } finally {
+    clearInterval(timer);
+  }
 }
 
 function fmtYen(n){
@@ -562,8 +616,27 @@ document.getElementById('btnSave').addEventListener('click', async () => {
 });
 
 // ==== 初期ロード＋自動更新 ====
+let isFirstLoad = true;
+const loadingOverlay = document.getElementById('loadingOverlay');
+const loadingText = document.getElementById('loadingText');
+
 async function loadDeals(){
-  const res = await gasGet('deal_list');
+  const showOverlay = isFirstLoad;
+  if(showOverlay){
+    loadingOverlay.classList.remove('hidden');
+    document.getElementById('board').style.display = 'none';
+  }
+
+  const onProgress = ({ elapsed, percent }) => {
+    if(!showOverlay) return;
+    const secs = elapsed.toFixed(1);
+    loadingText.textContent = (percent !== null && percent !== undefined)
+      ? `読み込み中… ${percent}%（${secs}秒経過）`
+      : `読み込み中… ${secs}秒経過（7拠点分を集計しています）`;
+  };
+
+  const res = await gasGetWithProgress('deal_list', onProgress);
+
   if(res.status === 'success'){
     deals = res.data;
     populateFilters();
@@ -573,6 +646,13 @@ async function loadDeals(){
       '最終更新 ' + String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0') + ':' + String(now.getSeconds()).padStart(2,'0');
   } else {
     console.error(res.data);
+    if(showOverlay) loadingText.textContent = '読み込みに失敗しました：' + res.data;
+  }
+
+  if(showOverlay){
+    loadingOverlay.classList.add('hidden');
+    document.getElementById('board').style.display = 'flex';
+    isFirstLoad = false;
   }
 }
 
