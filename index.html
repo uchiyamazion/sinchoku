@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>案件進捗ボード | シオンテクノス</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #EEF2F6;
+    --grid-line: #D7E0E9;
+    --paper: #FFFFFF;
+    --ink: #1B2733;
+    --ink-soft: #5A6B7B;
+    --navy: #1F3A5F;
+    --navy-soft: #DCE6F0;
+    --amber: #C97A2B;
+    --amber-soft: #F6E3CD;
+    --green: #3F7D58;
+    --green-soft: #DCEEE2;
+    --red: #B3432B;
+    --red-soft: #F5DCD3;
+    --grey: #8A97A3;
+    --grey-soft: #E4E8EC;
+    --line: #C9D3DD;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:'IBM Plex Sans JP', sans-serif;
+    background:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
+      var(--bg);
+    background-size: 28px 28px;
+    color: var(--ink);
+    min-height:100vh;
+  }
+  .mono{ font-family:'IBM Plex Mono', monospace; }
+
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:22px 28px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(255,255,255,0.75);
+    backdrop-filter: blur(4px);
+    position: sticky; top:0; z-index: 20;
+  }
+  header h1{
+    font-size: 19px; font-weight:700; margin:0; letter-spacing:.01em;
+  }
+  header .sub{ font-size:12.5px; color:var(--ink-soft); margin-top:3px; }
+  .btn{
+    border:none; cursor:pointer; font-family:inherit; font-weight:600;
+    border-radius:6px; padding:10px 16px; font-size:13.5px;
+    transition: transform .08s ease, box-shadow .12s ease;
+  }
+  .btn:active{ transform: translateY(1px); }
+  .btn-primary{ background:var(--navy); color:#fff; }
+  .btn-primary:hover{ box-shadow:0 3px 10px rgba(31,58,95,.35); }
+  .btn-ghost{ background:transparent; color:var(--ink-soft); border:1px solid var(--line); }
+  .btn-ghost:hover{ background:var(--grey-soft); }
+  .btn-danger{ background:var(--red); color:#fff; }
+
+  #conflictBanner{
+    display:none;
+    margin:14px 28px 0;
+    padding:11px 16px;
+    background: var(--red-soft);
+    border:1px solid var(--red);
+    color: var(--red);
+    border-radius:6px;
+    font-size:13px;
+    font-weight:600;
+  }
+  #conflictBanner span.detail{ font-weight:400; color:var(--ink); }
+
+  .board{
+    display:flex;
+    gap:18px;
+    padding: 22px 28px 40px;
+    overflow-x:auto;
+    align-items:flex-start;
+  }
+  .col{
+    background: rgba(255,255,255,.55);
+    border:1px solid var(--line);
+    border-radius:8px;
+    width:280px;
+    min-width:280px;
+    flex-shrink:0;
+    display:flex; flex-direction:column;
+    max-height: calc(100vh - 150px);
+  }
+  .col.dragover{ outline:2px dashed var(--navy); outline-offset:-2px; }
+  .col-head{
+    padding:13px 14px 11px;
+    border-bottom:1px solid var(--line);
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .col-head .label{ font-size:13.5px; font-weight:700; }
+  .col-head .count{
+    font-size:11.5px; font-family:'IBM Plex Mono',monospace; color:var(--ink-soft);
+    background:var(--grey-soft); padding:1px 7px; border-radius:10px;
+  }
+  .col-body{ padding:10px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:9px; }
+  .col-body:empty::after{
+    content:"案件なし";
+    display:block; text-align:center; color:var(--grey); font-size:12px; padding:18px 0;
+  }
+
+  .col[data-status="見積中"] .col-head{ border-top:3px solid var(--grey); }
+  .col[data-status="受注"] .col-head{ border-top:3px solid var(--navy); }
+  .col[data-status="工事中"] .col-head{ border-top:3px solid var(--amber); }
+  .col[data-status="完了"] .col-head{ border-top:3px solid var(--green); }
+
+  .card{
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:11px 12px;
+    cursor:grab;
+    font-size:12.8px;
+    box-shadow: 0 1px 2px rgba(20,30,40,.05);
+  }
+  .card:hover{ border-color: var(--navy); }
+  .card.dragging{ opacity:.4; }
+  .card .cname{ font-weight:700; font-size:13.3px; margin-bottom:2px; }
+  .card .pname{ color:var(--ink-soft); margin-bottom:8px; }
+  .card .row{ display:flex; align-items:center; justify-content:space-between; margin-top:6px; }
+  .badge{
+    display:inline-flex; align-items:center; gap:4px;
+    font-size:10.8px; font-weight:600; padding:2px 7px; border-radius:10px;
+    font-family:'IBM Plex Mono', monospace;
+  }
+  .badge.b-green{ background:var(--green-soft); color:var(--green); }
+  .badge.b-amber{ background:var(--amber-soft); color:var(--amber); }
+  .badge.b-red{ background:var(--red-soft); color:var(--red); }
+  .badge.b-grey{ background:var(--grey-soft); color:var(--ink-soft); }
+  .amt{ font-family:'IBM Plex Mono',monospace; font-weight:600; color:var(--ink); }
+  .conflict-flag{
+    color:var(--red); font-weight:700; font-size:11px; margin-top:6px;
+    display:flex; align-items:center; gap:4px;
+  }
+
+  #lostToggleWrap{ padding:14px 28px 0; }
+  #lostToggleWrap button{
+    background:none; border:none; color:var(--ink-soft); font-size:12.5px;
+    cursor:pointer; text-decoration:underline; font-family:inherit; padding:0;
+  }
+  #lostCol{ display:none; }
+
+  /* modal */
+  .overlay{
+    display:none; position:fixed; inset:0; background:rgba(20,28,38,.45);
+    z-index:50; align-items:flex-start; justify-content:center; padding: 4vh 16px;
+    overflow-y:auto;
+  }
+  .overlay.open{ display:flex; }
+  .modal{
+    background:var(--paper); border-radius:10px; width:100%; max-width:560px;
+    padding:26px 26px 22px; box-shadow:0 20px 50px rgba(20,30,45,.3);
+  }
+  .modal h2{ margin:0 0 4px; font-size:17px; }
+  .modal .del{ float:right; }
+  .section-label{
+    font-size:11.5px; font-weight:700; color:var(--navy); margin:18px 0 8px;
+    border-bottom:1px solid var(--navy-soft); padding-bottom:4px;
+  }
+  .section-label:first-of-type{ margin-top:16px; }
+  .field-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
+  .field{ display:flex; flex-direction:column; gap:4px; }
+  .field.full{ grid-column: 1 / -1; }
+  .field label{ font-size:11.5px; color:var(--ink-soft); font-weight:600; }
+  .field input, .field select, .field textarea{
+    font-family:inherit; font-size:13px; padding:8px 9px;
+    border:1px solid var(--line); border-radius:5px; background:#FBFCFD;
+    color:var(--ink);
+  }
+  .field input:focus, .field select:focus, .field textarea:focus{
+    outline:none; border-color:var(--navy);
+  }
+  .field textarea{ resize:vertical; min-height:44px; }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:22px; }
+  .modal-conflict{
+    margin-top:14px; background:var(--red-soft); border:1px solid var(--red);
+    color:var(--red); border-radius:6px; padding:9px 11px; font-size:12px; font-weight:600;
+  }
+
+  @media (max-width: 700px){
+    header{ flex-direction:column; align-items:flex-start; gap:10px; }
+    .field-grid{ grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>案件進捗ボード</h1>
+    <div class="sub">見積〜受注〜工事〜請求までの案件パイプライン ／ <span id="lastUpdated">未取得</span></div>
+  </div>
+  <button class="btn btn-primary" id="btnNew">＋ 新規案件</button>
+</header>
+
+<div id="conflictBanner"></div>
+
+<div class="board" id="board">
+  <div class="col" data-status="見積中">
+    <div class="col-head"><span class="label">見積中</span><span class="count mono" id="cnt-見積中">0</span></div>
+    <div class="col-body" id="col-見積中"></div>
+  </div>
+  <div class="col" data-status="受注">
+    <div class="col-head"><span class="label">受注</span><span class="count mono" id="cnt-受注">0</span></div>
+    <div class="col-body" id="col-受注"></div>
+  </div>
+  <div class="col" data-status="工事中">
+    <div class="col-head"><span class="label">工事中</span><span class="count mono" id="cnt-工事中">0</span></div>
+    <div class="col-body" id="col-工事中"></div>
+  </div>
+  <div class="col" data-status="完了">
+    <div class="col-head"><span class="label">完了</span><span class="count mono" id="cnt-完了">0</span></div>
+    <div class="col-body" id="col-完了"></div>
+  </div>
+  <div class="col" data-status="失注" id="lostCol">
+    <div class="col-head"><span class="label">失注</span><span class="count mono" id="cnt-失注">0</span></div>
+    <div class="col-body" id="col-失注"></div>
+  </div>
+</div>
+<div id="lostToggleWrap"><button id="toggleLost">失注案件を表示する</button></div>
+
+<!-- モーダル -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <button class="btn btn-danger del" id="btnDelete" style="display:none;">削除</button>
+    <h2 id="modalTitle">新規案件</h2>
+    <input type="hidden" id="f-id">
+
+    <div class="section-label">基本情報</div>
+    <div class="field-grid">
+      <div class="field"><label>顧客名</label><input id="f-customerName"></div>
+      <div class="field"><label>案件名</label><input id="f-projectName"></div>
+      <div class="field"><label>担当者</label><input id="f-assignee"></div>
+      <div class="field">
+        <label>ステータス</label>
+        <select id="f-status">
+          <option value="見積中">見積中</option>
+          <option value="受注">受注</option>
+          <option value="工事中">工事中</option>
+          <option value="完了">完了</option>
+          <option value="失注">失注</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="section-label">見積</div>
+    <div class="field-grid">
+      <div class="field"><label>見積提出日</label><input type="date" id="f-quoteDate"></div>
+      <div class="field"><label>見積金額（円）</label><input type="number" id="f-quoteAmount"></div>
+      <div class="field full" id="lostReasonField">
+        <label>失注理由</label><textarea id="f-lostReason"></textarea>
+      </div>
+    </div>
+
+    <div class="section-label">受注</div>
+    <div class="field-grid">
+      <div class="field"><label>受注日</label><input type="date" id="f-orderDate"></div>
+      <div class="field full">
+        <label>受注の決め手</label><textarea id="f-winFactor"></textarea>
+      </div>
+    </div>
+
+    <div class="section-label">工事日程</div>
+    <div class="field-grid">
+      <div class="field"><label>工事開始日</label><input type="date" id="f-constructionStart"></div>
+      <div class="field"><label>工事終了日</label><input type="date" id="f-constructionEnd"></div>
+    </div>
+
+    <div class="section-label">仕入・請求</div>
+    <div class="field-grid">
+      <div class="field"><label>仕入先</label><input id="f-supplier"></div>
+      <div class="field"><label>仕入日</label><input type="date" id="f-purchaseDate"></div>
+      <div class="field"><label>仕入金額（円）</label><input type="number" id="f-purchaseAmount"></div>
+      <div class="field"><label>請求予定月</label><input type="month" id="f-billingMonth"></div>
+    </div>
+
+    <div class="section-label">備考</div>
+    <div class="field-grid">
+      <div class="field full"><textarea id="f-note"></textarea></div>
+    </div>
+
+    <div id="modalConflict" class="modal-conflict" style="display:none;"></div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="btnCancel">キャンセル</button>
+      <button class="btn btn-primary" id="btnSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==== 設定：GASウェブアプリのURLをここに設定してください ====
+const WEBAPP_URL = 'PASTE_YOUR_GAS_WEBAPP_URL_HERE';
+
+let deals = [];
+let showLost = false;
+
+function gasGet(action, params={}){
+  const qs = new URLSearchParams({ action, ...params }).toString();
+  return fetch(`${WEBAPP_URL}?${qs}`).then(r => r.json());
+}
+function gasPost(action, payload){
+  return fetch(WEBAPP_URL, {
+    method:'POST',
+    headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action, payload })
+  }).then(r => r.json());
+}
+
+function fmtYen(n){
+  if(n === '' || n === undefined || n === null || isNaN(n)) return '';
+  return '¥' + Number(n).toLocaleString('ja-JP');
+}
+function fmtDate(d){
+  if(!d) return '';
+  const dt = new Date(d);
+  if(isNaN(dt.getTime())) return d;
+  return `${dt.getMonth()+1}/${dt.getDate()}`;
+}
+
+function elapsedBadge(deal){
+  if(deal.status !== '見積中') return '';
+  const days = deal.elapsedDays;
+  if(days === null || days === undefined) return '';
+  let cls = 'b-green';
+  if(days >= 14) cls = 'b-red';
+  else if(days >= 7) cls = 'b-amber';
+  return `<span class="badge ${cls}">経過${days}日</span>`;
+}
+
+function findConflicts(){
+  // 表示中の全案件から、受注/工事中どうしの工事日重複を検出
+  const active = deals.filter(d => (d.status === '受注' || d.status === '工事中') && d.constructionStart);
+  const conflictIds = new Set();
+  const pairs = [];
+  for(let i=0;i<active.length;i++){
+    for(let j=i+1;j<active.length;j++){
+      const a = active[i], b = active[j];
+      const as = new Date(a.constructionStart).getTime();
+      const ae = new Date(a.constructionEnd || a.constructionStart).getTime();
+      const bs = new Date(b.constructionStart).getTime();
+      const be = new Date(b.constructionEnd || b.constructionStart).getTime();
+      if(as <= be && bs <= ae){
+        conflictIds.add(a.id); conflictIds.add(b.id);
+        pairs.push(`「${a.projectName||a.customerName}」と「${b.projectName||b.customerName}」`);
+      }
+    }
+  }
+  return { conflictIds, pairs };
+}
+
+function render(){
+  const { conflictIds, pairs } = findConflicts();
+
+  const banner = document.getElementById('conflictBanner');
+  if(pairs.length){
+    banner.style.display = 'block';
+    banner.innerHTML = `⚠ 工事日が重複しています： <span class="detail">${pairs.join(' / ')}</span>`;
+  } else {
+    banner.style.display = 'none';
+  }
+
+  ['見積中','受注','工事中','完了','失注'].forEach(status => {
+    const list = deals.filter(d => d.status === status)
+      .sort((a,b) => (a.constructionStart||a.quoteDate||'').localeCompare(b.constructionStart||b.quoteDate||''));
+    document.getElementById(`cnt-${status}`).textContent = list.length;
+    const body = document.getElementById(`col-${status}`);
+    body.innerHTML = '';
+    list.forEach(d => body.appendChild(renderCard(d, conflictIds.has(d.id))));
+  });
+
+  document.getElementById('lostCol').style.display = showLost ? 'flex' : 'none';
+}
+
+function renderCard(d, hasConflict){
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.draggable = true;
+  el.dataset.id = d.id;
+
+  let dateLine = '';
+  if(d.status === '見積中') dateLine = `<span>見積 ${fmtDate(d.quoteDate)}</span>`;
+  else if(d.constructionStart) dateLine = `<span>工事 ${fmtDate(d.constructionStart)}〜${fmtDate(d.constructionEnd)}</span>`;
+  else if(d.orderDate) dateLine = `<span>受注 ${fmtDate(d.orderDate)}</span>`;
+
+  el.innerHTML = `
+    <div class="cname">${escapeHtml(d.customerName||'(顧客未設定)')}</div>
+    <div class="pname">${escapeHtml(d.projectName||'')}</div>
+    <div class="row">
+      <span class="amt">${fmtYen(d.quoteAmount)}</span>
+      ${elapsedBadge(d)}
+    </div>
+    <div class="row mono" style="color:var(--ink-soft); font-size:11px;">
+      ${dateLine}
+      ${d.billingMonth ? `<span class="badge b-grey">請求 ${d.billingMonth}</span>` : ''}
+    </div>
+    ${hasConflict ? `<div class="conflict-flag">⚠ 工事日が他案件と重複</div>` : ''}
+  `;
+
+  el.addEventListener('click', () => openModal(d));
+  el.addEventListener('dragstart', () => el.classList.add('dragging'));
+  el.addEventListener('dragend', () => el.classList.remove('dragging'));
+  return el;
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ==== ドラッグ&ドロップでステータス変更 ====
+document.querySelectorAll('.col-body').forEach(body => {
+  body.addEventListener('dragover', e => {
+    e.preventDefault();
+    body.closest('.col').classList.add('dragover');
+  });
+  body.addEventListener('dragleave', () => body.closest('.col').classList.remove('dragover'));
+  body.addEventListener('drop', async e => {
+    e.preventDefault();
+    body.closest('.col').classList.remove('dragover');
+    const dragging = document.querySelector('.card.dragging');
+    if(!dragging) return;
+    const id = dragging.dataset.id;
+    const newStatus = body.closest('.col').dataset.status;
+    const deal = deals.find(d => d.id === id);
+    if(!deal || deal.status === newStatus) return;
+
+    if(newStatus === '失注' && !deal.lostReason){
+      const reason = prompt('失注理由を入力してください：');
+      if(reason === null) return;
+      deal.lostReason = reason;
+    }
+    if(newStatus === '受注' && !deal.winFactor){
+      const factor = prompt('受注の決め手を入力してください：');
+      if(factor === null) return;
+      deal.winFactor = factor;
+    }
+    deal.status = newStatus;
+    render();
+    const res = await gasPost('deal_upsert', deal);
+    if(res.status === 'success' && res.data.conflicts && res.data.conflicts.length){
+      alert('注意：工事日が以下の案件と重複しています。\n' +
+        res.data.conflicts.map(c => `・${c.projectName||c.customerName}（${c.constructionStart}〜${c.constructionEnd}）`).join('\n'));
+    }
+  });
+});
+
+document.getElementById('toggleLost').addEventListener('click', () => {
+  showLost = !showLost;
+  document.getElementById('toggleLost').textContent = showLost ? '失注案件を隠す' : '失注案件を表示する';
+  render();
+});
+
+// ==== モーダル ====
+const overlay = document.getElementById('overlay');
+const fields = ['id','customerName','projectName','assignee','status','quoteDate','quoteAmount',
+  'lostReason','orderDate','winFactor','constructionStart','constructionEnd',
+  'supplier','purchaseDate','purchaseAmount','billingMonth','note'];
+
+function openModal(deal){
+  document.getElementById('modalTitle').textContent = deal ? '案件を編集' : '新規案件';
+  document.getElementById('btnDelete').style.display = deal ? 'inline-block' : 'none';
+  document.getElementById('modalConflict').style.display = 'none';
+  fields.forEach(f => {
+    const el = document.getElementById('f-' + f);
+    el.value = deal && deal[f] !== undefined ? deal[f] : '';
+  });
+  if(!deal) document.getElementById('f-status').value = '見積中';
+  overlay.classList.add('open');
+}
+function closeModal(){ overlay.classList.remove('open'); }
+
+document.getElementById('btnNew').addEventListener('click', () => openModal(null));
+document.getElementById('btnCancel').addEventListener('click', closeModal);
+overlay.addEventListener('click', e => { if(e.target === overlay) closeModal(); });
+
+document.getElementById('btnSave').addEventListener('click', async () => {
+  const data = {};
+  fields.forEach(f => {
+    const v = document.getElementById('f-' + f).value;
+    if(v !== '') data[f] = v;
+  });
+  if(!data.id) delete data.id;
+
+  const btn = document.getElementById('btnSave');
+  btn.disabled = true; btn.textContent = '保存中…';
+  try{
+    const res = await gasPost('deal_upsert', data);
+    if(res.status !== 'success'){ alert('保存に失敗しました：' + res.data); return; }
+    if(res.data.conflicts && res.data.conflicts.length){
+      document.getElementById('modalConflict').style.display = 'block';
+      document.getElementById('modalConflict').textContent =
+        '⚠ 工事日が重複しています： ' +
+        res.data.conflicts.map(c => `${c.projectName||c.customerName}（${c.constructionStart}〜${c.constructionEnd}）`).join(' / ');
+    }
+    await loadDeals();
+    closeModal();
+  } finally {
+    btn.disabled = false; btn.textContent = '保存';
+  }
+});
+
+document.getElementById('btnDelete').addEventListener('click', async () => {
+  const id = document.getElementById('f-id').value;
+  if(!id) return;
+  if(!confirm('この案件を削除しますか？')) return;
+  await gasPost('deal_delete', { id });
+  await loadDeals();
+  closeModal();
+});
+
+// ==== 初期ロード＋自動更新（他スタッフの直接編集を反映） ====
+async function loadDeals(){
+  const res = await gasGet('deal_list');
+  if(res.status === 'success'){
+    deals = res.data;
+    render();
+    const now = new Date();
+    document.getElementById('lastUpdated').textContent =
+      '最終更新 ' + String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0') + ':' + String(now.getSeconds()).padStart(2,'0');
+  } else {
+    console.error(res.data);
+  }
+}
+
+const POLL_INTERVAL_MS = 30000; // 30秒ごとにスプレッドシートを読み直す
+
+function startPolling(){
+  setInterval(() => {
+    // モーダル編集中・ドラッグ中は割り込まない
+    if(overlay.classList.contains('open')) return;
+    if(document.querySelector('.card.dragging')) return;
+    loadDeals();
+  }, POLL_INTERVAL_MS);
+
+  // タブに戻ってきた瞬間にも即再取得
+  document.addEventListener('visibilitychange', () => {
+    if(document.visibilityState === 'visible' && !overlay.classList.contains('open')){
+      loadDeals();
+    }
+  });
+}
+
+if(WEBAPP_URL.indexOf('PASTE_YOUR') === 0){
+  document.getElementById('board').innerHTML =
+    '<div style="padding:40px; color:var(--ink-soft);">WEBAPP_URL が未設定です。index.html内のWEBAPP_URLにGASデプロイURLを設定してください。</div>';
+} else {
+  loadDeals();
+  startPolling();
+}
+</script>
+</body>
+</html>
