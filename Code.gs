@@ -83,6 +83,7 @@ function doPost(e) {
 
     switch (action) {
       case 'deal_extra_upsert': return dealExtraUpsert(payload.data || payload);
+      case 'deal_core_update':  return dealCoreUpdate(payload.data || payload);
       default:                  return makeErr('不明なaction: ' + action);
     }
   } catch (err) {
@@ -209,6 +210,57 @@ function rangesOverlap_(aStart, aEnd, bStart, bEnd) {
   const bs = new Date(bStart).getTime();
   const be = new Date(bEnd || bStart).getTime();
   return as <= be && bs <= ae;
+}
+
+// ════════════════════════════════════════════════
+// 元シートの基本情報を直接更新（行ズレ確認つき）
+// ════════════════════════════════════════════════
+
+const EDITABLE_CORE_FIELDS = [
+  'customerName', 'siteName', 'projectName', 'summary', 'occurredDate', 'source',
+  'assignee', 'quoteAmount', 'plannedProfit', 'rank', 'expectedOrderMonth',
+  'currentStatus', 'pendingIssue', 'confirmedAmount', 'profit', 'profitRate'
+];
+
+function dealCoreUpdate(data) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    if (!data.branch || !data.rowNum) return makeErr('branch / rowNum が指定されていません');
+    const sh = sheet(data.branch);
+    if (!sh) return makeErr('シートが見つかりません: ' + data.branch);
+
+    let rowNum = Number(data.rowNum);
+
+    // 他の人が行を追加・削除して行がズレていないか、案件Noで突合確認
+    if (data.dealNo) {
+      const curDealNo = sh.getRange(rowNum, COL.dealNo).getValue();
+      if (String(curDealNo) !== String(data.dealNo)) {
+        const lastRow = sh.getLastRow();
+        let found = -1;
+        for (let r = DATA_START_ROW; r <= lastRow; r++) {
+          if (String(sh.getRange(r, COL.dealNo).getValue()) === String(data.dealNo)) { found = r; break; }
+        }
+        if (found < 0) {
+          return makeErr('対象の行が見つかりませんでした（案件No: ' + data.dealNo + '）。ページを再読み込みしてから、もう一度お試しください。');
+        }
+        rowNum = found;
+      }
+    }
+
+    EDITABLE_CORE_FIELDS.forEach(f => {
+      if (data[f] === undefined) return;
+      const colIdx = COL[f];
+      if (!colIdx) return;
+      sh.getRange(rowNum, colIdx).setValue(data[f]);
+    });
+
+    return makeRes({ id: data.id, rowNum: rowNum });
+  } catch (err) {
+    return makeErr('dealCoreUpdate error: ' + err.toString());
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function dealExtraUpsert(data) {

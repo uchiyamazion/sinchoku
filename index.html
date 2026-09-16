@@ -265,22 +265,29 @@
     <h2 id="modalTitle">案件詳細</h2>
     <input type="hidden" id="f-id">
 
-    <div class="section-label">基本情報（元シートより読み取り専用・編集はスプレッドシート側で）</div>
-    <div class="readonly-grid">
-      <div class="ro-item full"><span class="ro-label">現場名</span><span class="ro-val" id="ro-siteName"></span></div>
-      <div class="ro-item"><span class="ro-label">案件No</span><span class="ro-val mono" id="ro-dealNo"></span></div>
-      <div class="ro-item"><span class="ro-label">担当者</span><span class="ro-val" id="ro-assignee"></span></div>
-      <div class="ro-item"><span class="ro-label">顧客名</span><span class="ro-val" id="ro-customerName"></span></div>
-      <div class="ro-item full"><span class="ro-label">案件名</span><span class="ro-val" id="ro-projectName"></span></div>
-      <div class="ro-item full"><span class="ro-label">案件概略</span><span class="ro-val" id="ro-summary"></span></div>
-      <div class="ro-item"><span class="ro-label">発生日</span><span class="ro-val" id="ro-occurredDate"></span></div>
-      <div class="ro-item"><span class="ro-label">ランク</span><span class="ro-val" id="ro-rank"></span></div>
-      <div class="ro-item"><span class="ro-label">見積金額</span><span class="ro-val" id="ro-quoteAmount"></span></div>
-      <div class="ro-item"><span class="ro-label">確定金額</span><span class="ro-val" id="ro-confirmedAmount"></span></div>
-      <div class="ro-item"><span class="ro-label">受注予定月</span><span class="ro-val" id="ro-expectedOrderMonth"></span></div>
-      <div class="ro-item"><span class="ro-label">粗利率</span><span class="ro-val" id="ro-profitRate"></span></div>
-      <div class="ro-item full"><span class="ro-label">現在状況（シート記載）</span><span class="ro-val" id="ro-currentStatus"></span></div>
-      <div class="ro-item full"><span class="ro-label">未実行の課題</span><span class="ro-val" id="ro-pendingIssue"></span></div>
+    <div class="section-label">基本情報（編集すると元のスプレッドシートに直接反映されます）</div>
+    <div class="field-grid">
+      <div class="field full"><label>現場名</label><input id="c-siteName"></div>
+      <div class="field"><label>案件No（変更不可）</label><input id="c-dealNo" disabled></div>
+      <div class="field"><label>担当者</label><input id="c-assignee"></div>
+      <div class="field"><label>顧客名</label><input id="c-customerName"></div>
+      <div class="field full"><label>案件名</label><input id="c-projectName"></div>
+      <div class="field full"><label>案件概略</label><textarea id="c-summary"></textarea></div>
+      <div class="field"><label>発生日</label><input type="date" id="c-occurredDate"></div>
+      <div class="field">
+        <label>ランク</label>
+        <select id="c-rank">
+          <option value="">－</option>
+          <option value="S">S</option><option value="A">A</option>
+          <option value="B">B</option><option value="C">C</option><option value="E">E</option>
+        </select>
+      </div>
+      <div class="field"><label>見積金額（円）</label><input type="number" id="c-quoteAmount"></div>
+      <div class="field"><label>確定金額（円）</label><input type="number" id="c-confirmedAmount"></div>
+      <div class="field"><label>受注予定月</label><input id="c-expectedOrderMonth"></div>
+      <div class="field"><label>粗利率</label><input id="c-profitRate"></div>
+      <div class="field full"><label>現在状況（シート記載）</label><textarea id="c-currentStatus"></textarea></div>
+      <div class="field full"><label>未実行の課題</label><textarea id="c-pendingIssue"></textarea></div>
     </div>
 
     <div class="section-label">進捗ボード用の追加情報（ここで編集）</div>
@@ -607,20 +614,21 @@ document.getElementById('toggleLost').addEventListener('click', () => {
 
 // ==== モーダル ====
 const overlay = document.getElementById('overlay');
-const roFields = ['dealNo','assignee','customerName','siteName','projectName','summary','occurredDate','rank','quoteAmount','confirmedAmount','expectedOrderMonth','profitRate','currentStatus','pendingIssue'];
+const coreFields = ['dealNo','assignee','customerName','siteName','projectName','summary','occurredDate','rank','quoteAmount','confirmedAmount','expectedOrderMonth','profitRate','currentStatus','pendingIssue'];
 const editFields = ['status','quoteDate','lostReason','winFactor','constructionStart','constructionEnd','supplier','purchaseDate','purchaseAmount','billingMonth'];
+let currentDeal = null;
 
 function openModal(deal){
+  currentDeal = deal;
   document.getElementById('m-branch').textContent = deal.branch;
   document.getElementById('modalTitle').textContent = deal.projectName || deal.customerName || '案件詳細';
   document.getElementById('f-id').value = deal.id;
 
-  roFields.forEach(f => {
-    const el = document.getElementById('ro-' + f);
-    let v = deal[f];
-    if(f === 'occurredDate') v = fmtDate(v) ? (new Date(v)).toLocaleDateString('ja-JP') : '';
-    if(f === 'quoteAmount' || f === 'confirmedAmount') v = fmtYen(v);
-    el.textContent = v || '－';
+  coreFields.forEach(f => {
+    const el = document.getElementById('c-' + f);
+    if(!el) return;
+    if(f === 'occurredDate'){ el.value = toDateInputVal(deal[f]); return; }
+    el.value = deal[f] !== undefined && deal[f] !== null ? deal[f] : '';
   });
 
   editFields.forEach(f => {
@@ -635,25 +643,37 @@ function openModal(deal){
   document.getElementById('modalConflict').style.display = 'none';
   overlay.classList.add('open');
 }
-function closeModal(){ overlay.classList.remove('open'); }
+function closeModal(){ overlay.classList.remove('open'); currentDeal = null; }
 
 document.getElementById('btnCancel').addEventListener('click', closeModal);
 overlay.addEventListener('click', e => { if(e.target === overlay) closeModal(); });
 
 document.getElementById('btnSave').addEventListener('click', async () => {
-  const data = { id: document.getElementById('f-id').value };
-  editFields.forEach(f => { data[f] = document.getElementById('f-' + f).value; });
+  const id = document.getElementById('f-id').value;
+
+  const coreData = { id, branch: currentDeal.branch, rowNum: currentDeal.rowNum, dealNo: currentDeal.dealNo };
+  coreFields.forEach(f => {
+    if(f === 'dealNo') return; // 変更不可
+    coreData[f] = document.getElementById('c-' + f).value;
+  });
+
+  const extraData = { id };
+  editFields.forEach(f => { extraData[f] = document.getElementById('f-' + f).value; });
 
   const btn = document.getElementById('btnSave');
   btn.disabled = true; btn.textContent = '保存中…';
   try{
-    const res = await gasPost('deal_extra_upsert', data);
-    if(res.status !== 'success'){ alert('保存に失敗しました：' + res.data); return; }
-    if(res.data.conflicts && res.data.conflicts.length){
+    const [coreRes, extraRes] = await Promise.all([
+      gasPost('deal_core_update', coreData),
+      gasPost('deal_extra_upsert', extraData)
+    ]);
+    if(coreRes.status !== 'success'){ alert('基本情報の保存に失敗しました：' + coreRes.data); return; }
+    if(extraRes.status !== 'success'){ alert('追加情報の保存に失敗しました：' + extraRes.data); return; }
+    if(extraRes.data.conflicts && extraRes.data.conflicts.length){
       document.getElementById('modalConflict').style.display = 'block';
       document.getElementById('modalConflict').textContent =
         '⚠ 工事日が重複しています： ' +
-        res.data.conflicts.map(c => `${c.id}（${fmtDate(c.constructionStart)}〜${fmtDate(c.constructionEnd)}）`).join(' / ');
+        extraRes.data.conflicts.map(c => `${c.id}（${fmtDate(c.constructionStart)}〜${fmtDate(c.constructionEnd)}）`).join(' / ');
     }
     await loadDeals();
     closeModal();
