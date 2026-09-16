@@ -41,157 +41,115 @@
   .mono{ font-family:'IBM Plex Mono', monospace; }
 
   header{
-    display:flex; align-items:center; justify-content:space-between;
-    padding:22px 28px;
+    display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;
+    padding:18px 28px;
     border-bottom: 1px solid var(--line);
     background: rgba(255,255,255,0.75);
     backdrop-filter: blur(4px);
     position: sticky; top:0; z-index: 20;
   }
-  header h1{
-    font-size: 19px; font-weight:700; margin:0; letter-spacing:.01em;
+  header h1{ font-size: 19px; font-weight:700; margin:0; letter-spacing:.01em; }
+  header .sub{ font-size:12px; color:var(--ink-soft); margin-top:3px; }
+  .header-right{ display:flex; align-items:center; gap:10px; }
+  select{
+    font-family:inherit; font-size:13px; padding:8px 10px;
+    border:1px solid var(--line); border-radius:6px; background:#FBFCFD; color:var(--ink);
   }
-  header .sub{ font-size:12.5px; color:var(--ink-soft); margin-top:3px; }
   .btn{
     border:none; cursor:pointer; font-family:inherit; font-weight:600;
-    border-radius:6px; padding:10px 16px; font-size:13.5px;
-    transition: transform .08s ease, box-shadow .12s ease;
+    border-radius:6px; padding:9px 14px; font-size:13px;
   }
-  .btn:active{ transform: translateY(1px); }
-  .btn-primary{ background:var(--navy); color:#fff; }
-  .btn-primary:hover{ box-shadow:0 3px 10px rgba(31,58,95,.35); }
   .btn-ghost{ background:transparent; color:var(--ink-soft); border:1px solid var(--line); }
   .btn-ghost:hover{ background:var(--grey-soft); }
-  .btn-danger{ background:var(--red); color:#fff; }
+  .btn-primary{ background:var(--navy); color:#fff; }
 
   #conflictBanner{
-    display:none;
-    margin:14px 28px 0;
-    padding:11px 16px;
-    background: var(--red-soft);
-    border:1px solid var(--red);
-    color: var(--red);
-    border-radius:6px;
-    font-size:13px;
-    font-weight:600;
+    display:none; margin:14px 28px 0; padding:11px 16px;
+    background: var(--red-soft); border:1px solid var(--red); color: var(--red);
+    border-radius:6px; font-size:13px; font-weight:600;
   }
   #conflictBanner span.detail{ font-weight:400; color:var(--ink); }
 
-  .board{
-    display:flex;
-    gap:18px;
-    padding: 22px 28px 40px;
-    overflow-x:auto;
-    align-items:flex-start;
-  }
+  .board{ display:flex; gap:16px; padding: 20px 28px 40px; overflow-x:auto; align-items:flex-start; }
   .col{
-    background: rgba(255,255,255,.55);
-    border:1px solid var(--line);
-    border-radius:8px;
-    width:280px;
-    min-width:280px;
-    flex-shrink:0;
-    display:flex; flex-direction:column;
-    max-height: calc(100vh - 150px);
+    background: rgba(255,255,255,.55); border:1px solid var(--line); border-radius:8px;
+    width:266px; min-width:266px; flex-shrink:0; display:flex; flex-direction:column;
+    max-height: calc(100vh - 175px);
   }
   .col.dragover{ outline:2px dashed var(--navy); outline-offset:-2px; }
-  .col-head{
-    padding:13px 14px 11px;
-    border-bottom:1px solid var(--line);
-    display:flex; align-items:center; justify-content:space-between;
-  }
-  .col-head .label{ font-size:13.5px; font-weight:700; }
-  .col-head .count{
-    font-size:11.5px; font-family:'IBM Plex Mono',monospace; color:var(--ink-soft);
-    background:var(--grey-soft); padding:1px 7px; border-radius:10px;
-  }
-  .col-body{ padding:10px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:9px; }
-  .col-body:empty::after{
-    content:"案件なし";
-    display:block; text-align:center; color:var(--grey); font-size:12px; padding:18px 0;
-  }
+  .col-head{ padding:12px 13px 10px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; }
+  .col-head .label{ font-size:13px; font-weight:700; }
+  .col-head .count{ font-size:11px; font-family:'IBM Plex Mono',monospace; color:var(--ink-soft); background:var(--grey-soft); padding:1px 7px; border-radius:10px; }
+  .col-body{ padding:9px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:8px; }
+  .col-body:empty::after{ content:"案件なし"; display:block; text-align:center; color:var(--grey); font-size:11.5px; padding:16px 0; }
 
+  .col[data-status=""] .col-head{ border-top:3px solid #B9C2CC; }
   .col[data-status="見積中"] .col-head{ border-top:3px solid var(--grey); }
   .col[data-status="受注"] .col-head{ border-top:3px solid var(--navy); }
   .col[data-status="工事中"] .col-head{ border-top:3px solid var(--amber); }
   .col[data-status="完了"] .col-head{ border-top:3px solid var(--green); }
 
   .card{
-    background:var(--paper);
-    border:1px solid var(--line);
-    border-radius:6px;
-    padding:11px 12px;
-    cursor:grab;
-    font-size:12.8px;
-    box-shadow: 0 1px 2px rgba(20,30,40,.05);
+    background:var(--paper); border:1px solid var(--line); border-radius:6px;
+    padding:10px 11px; cursor:grab; font-size:12.3px; box-shadow: 0 1px 2px rgba(20,30,40,.05);
   }
   .card:hover{ border-color: var(--navy); }
   .card.dragging{ opacity:.4; }
-  .card .cname{ font-weight:700; font-size:13.3px; margin-bottom:2px; }
-  .card .pname{ color:var(--ink-soft); margin-bottom:8px; }
-  .card .row{ display:flex; align-items:center; justify-content:space-between; margin-top:6px; }
+  .card .branch-tag{
+    display:inline-block; font-size:10px; font-weight:600; color:var(--navy);
+    background:var(--navy-soft); padding:1px 6px; border-radius:8px; margin-bottom:5px;
+  }
+  .card .cname{ font-weight:700; font-size:12.8px; }
+  .card .pname{ color:var(--ink-soft); margin:1px 0 6px; }
+  .card .legacy-status{
+    color:var(--ink-soft); font-size:10.8px; margin-top:5px;
+    border-top:1px dashed var(--line); padding-top:5px;
+  }
+  .card .row{ display:flex; align-items:center; justify-content:space-between; margin-top:5px; flex-wrap:wrap; gap:4px; }
   .badge{
-    display:inline-flex; align-items:center; gap:4px;
-    font-size:10.8px; font-weight:600; padding:2px 7px; border-radius:10px;
-    font-family:'IBM Plex Mono', monospace;
+    display:inline-flex; align-items:center; gap:4px; font-size:10.5px; font-weight:600;
+    padding:2px 7px; border-radius:10px; font-family:'IBM Plex Mono', monospace;
   }
   .badge.b-green{ background:var(--green-soft); color:var(--green); }
   .badge.b-amber{ background:var(--amber-soft); color:var(--amber); }
   .badge.b-red{ background:var(--red-soft); color:var(--red); }
   .badge.b-grey{ background:var(--grey-soft); color:var(--ink-soft); }
-  .amt{ font-family:'IBM Plex Mono',monospace; font-weight:600; color:var(--ink); }
-  .conflict-flag{
-    color:var(--red); font-weight:700; font-size:11px; margin-top:6px;
-    display:flex; align-items:center; gap:4px;
-  }
+  .amt{ font-family:'IBM Plex Mono',monospace; font-weight:600; color:var(--ink); font-size:12px; }
+  .conflict-flag{ color:var(--red); font-weight:700; font-size:10.5px; margin-top:6px; display:flex; align-items:center; gap:4px; }
 
-  #lostToggleWrap{ padding:14px 28px 0; }
-  #lostToggleWrap button{
-    background:none; border:none; color:var(--ink-soft); font-size:12.5px;
-    cursor:pointer; text-decoration:underline; font-family:inherit; padding:0;
-  }
+  #lostToggleWrap{ padding:12px 28px 0; }
+  #lostToggleWrap button{ background:none; border:none; color:var(--ink-soft); font-size:12px; cursor:pointer; text-decoration:underline; font-family:inherit; padding:0; }
   #lostCol{ display:none; }
 
-  /* modal */
-  .overlay{
-    display:none; position:fixed; inset:0; background:rgba(20,28,38,.45);
-    z-index:50; align-items:flex-start; justify-content:center; padding: 4vh 16px;
-    overflow-y:auto;
-  }
+  .overlay{ display:none; position:fixed; inset:0; background:rgba(20,28,38,.45); z-index:50; align-items:flex-start; justify-content:center; padding: 4vh 16px; overflow-y:auto; }
   .overlay.open{ display:flex; }
-  .modal{
-    background:var(--paper); border-radius:10px; width:100%; max-width:560px;
-    padding:26px 26px 22px; box-shadow:0 20px 50px rgba(20,30,45,.3);
-  }
-  .modal h2{ margin:0 0 4px; font-size:17px; }
-  .modal .del{ float:right; }
-  .section-label{
-    font-size:11.5px; font-weight:700; color:var(--navy); margin:18px 0 8px;
-    border-bottom:1px solid var(--navy-soft); padding-bottom:4px;
-  }
-  .section-label:first-of-type{ margin-top:16px; }
+  .modal{ background:var(--paper); border-radius:10px; width:100%; max-width:600px; padding:24px 24px 20px; box-shadow:0 20px 50px rgba(20,30,45,.3); }
+  .modal h2{ margin:0 0 2px; font-size:16.5px; }
+  .modal .branch-tag{ display:inline-block; font-size:10.5px; font-weight:600; color:var(--navy); background:var(--navy-soft); padding:1px 7px; border-radius:8px; margin-bottom:8px; }
+
+  .section-label{ font-size:11px; font-weight:700; color:var(--navy); margin:16px 0 8px; border-bottom:1px solid var(--navy-soft); padding-bottom:4px; }
+  .readonly-grid{ display:grid; grid-template-columns:1fr 1fr; gap:6px 14px; font-size:12.5px; }
+  .readonly-grid .ro-item{ display:flex; flex-direction:column; gap:1px; }
+  .readonly-grid .ro-item.full{ grid-column:1/-1; }
+  .readonly-grid .ro-label{ font-size:10.5px; color:var(--ink-soft); }
+  .readonly-grid .ro-val{ color:var(--ink); }
+
   .field-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
   .field{ display:flex; flex-direction:column; gap:4px; }
   .field.full{ grid-column: 1 / -1; }
   .field label{ font-size:11.5px; color:var(--ink-soft); font-weight:600; }
   .field input, .field select, .field textarea{
-    font-family:inherit; font-size:13px; padding:8px 9px;
-    border:1px solid var(--line); border-radius:5px; background:#FBFCFD;
-    color:var(--ink);
+    font-family:inherit; font-size:13px; padding:8px 9px; border:1px solid var(--line);
+    border-radius:5px; background:#FBFCFD; color:var(--ink);
   }
-  .field input:focus, .field select:focus, .field textarea:focus{
-    outline:none; border-color:var(--navy);
-  }
+  .field input:focus, .field select:focus, .field textarea:focus{ outline:none; border-color:var(--navy); }
   .field textarea{ resize:vertical; min-height:44px; }
-  .modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:22px; }
-  .modal-conflict{
-    margin-top:14px; background:var(--red-soft); border:1px solid var(--red);
-    color:var(--red); border-radius:6px; padding:9px 11px; font-size:12px; font-weight:600;
-  }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:20px; }
+  .modal-conflict{ margin-top:14px; background:var(--red-soft); border:1px solid var(--red); color:var(--red); border-radius:6px; padding:9px 11px; font-size:12px; font-weight:600; }
 
   @media (max-width: 700px){
-    header{ flex-direction:column; align-items:flex-start; gap:10px; }
-    .field-grid{ grid-template-columns:1fr; }
+    header{ flex-direction:column; align-items:flex-start; }
+    .field-grid, .readonly-grid{ grid-template-columns:1fr; }
   }
 </style>
 </head>
@@ -200,14 +158,25 @@
 <header>
   <div>
     <h1>案件進捗ボード</h1>
-    <div class="sub">見積〜受注〜工事〜請求までの案件パイプライン ／ <span id="lastUpdated">未取得</span></div>
+    <div class="sub">既存の営業案件シートを読み込み・拠点横断で表示 ／ <span id="lastUpdated">未取得</span></div>
   </div>
-  <button class="btn btn-primary" id="btnNew">＋ 新規案件</button>
+  <div class="header-right">
+    <select id="branchFilter">
+      <option value="">すべての拠点</option>
+    </select>
+    <select id="assigneeFilter">
+      <option value="">すべての担当者</option>
+    </select>
+  </div>
 </header>
 
 <div id="conflictBanner"></div>
 
 <div class="board" id="board">
+  <div class="col" data-status="">
+    <div class="col-head"><span class="label">未設定</span><span class="count mono" id="cnt-未設定">0</span></div>
+    <div class="col-body" id="col-未設定"></div>
+  </div>
   <div class="col" data-status="見積中">
     <div class="col-head"><span class="label">見積中</span><span class="count mono" id="cnt-見積中">0</span></div>
     <div class="col-body" id="col-見積中"></div>
@@ -234,18 +203,34 @@
 <!-- モーダル -->
 <div class="overlay" id="overlay">
   <div class="modal">
-    <button class="btn btn-danger del" id="btnDelete" style="display:none;">削除</button>
-    <h2 id="modalTitle">新規案件</h2>
+    <span class="branch-tag" id="m-branch"></span>
+    <h2 id="modalTitle">案件詳細</h2>
     <input type="hidden" id="f-id">
 
-    <div class="section-label">基本情報</div>
+    <div class="section-label">基本情報（元シートより読み取り専用・編集はスプレッドシート側で）</div>
+    <div class="readonly-grid">
+      <div class="ro-item"><span class="ro-label">案件No</span><span class="ro-val mono" id="ro-dealNo"></span></div>
+      <div class="ro-item"><span class="ro-label">担当者</span><span class="ro-val" id="ro-assignee"></span></div>
+      <div class="ro-item"><span class="ro-label">顧客名</span><span class="ro-val" id="ro-customerName"></span></div>
+      <div class="ro-item"><span class="ro-label">現場名</span><span class="ro-val" id="ro-siteName"></span></div>
+      <div class="ro-item full"><span class="ro-label">案件名</span><span class="ro-val" id="ro-projectName"></span></div>
+      <div class="ro-item full"><span class="ro-label">案件概略</span><span class="ro-val" id="ro-summary"></span></div>
+      <div class="ro-item"><span class="ro-label">発生日</span><span class="ro-val" id="ro-occurredDate"></span></div>
+      <div class="ro-item"><span class="ro-label">ランク</span><span class="ro-val" id="ro-rank"></span></div>
+      <div class="ro-item"><span class="ro-label">見積金額</span><span class="ro-val" id="ro-quoteAmount"></span></div>
+      <div class="ro-item"><span class="ro-label">確定金額</span><span class="ro-val" id="ro-confirmedAmount"></span></div>
+      <div class="ro-item"><span class="ro-label">受注予定月</span><span class="ro-val" id="ro-expectedOrderMonth"></span></div>
+      <div class="ro-item"><span class="ro-label">粗利率</span><span class="ro-val" id="ro-profitRate"></span></div>
+      <div class="ro-item full"><span class="ro-label">現在状況（シート記載）</span><span class="ro-val" id="ro-currentStatus"></span></div>
+      <div class="ro-item full"><span class="ro-label">未実行の課題</span><span class="ro-val" id="ro-pendingIssue"></span></div>
+    </div>
+
+    <div class="section-label">進捗ボード用の追加情報（ここで編集）</div>
     <div class="field-grid">
-      <div class="field"><label>顧客名</label><input id="f-customerName"></div>
-      <div class="field"><label>案件名</label><input id="f-projectName"></div>
-      <div class="field"><label>担当者</label><input id="f-assignee"></div>
       <div class="field">
         <label>ステータス</label>
         <select id="f-status">
+          <option value="">未設定</option>
           <option value="見積中">見積中</option>
           <option value="受注">受注</option>
           <option value="工事中">工事中</option>
@@ -253,48 +238,21 @@
           <option value="失注">失注</option>
         </select>
       </div>
-    </div>
-
-    <div class="section-label">見積</div>
-    <div class="field-grid">
       <div class="field"><label>見積提出日</label><input type="date" id="f-quoteDate"></div>
-      <div class="field"><label>見積金額（円）</label><input type="number" id="f-quoteAmount"></div>
-      <div class="field full" id="lostReasonField">
-        <label>失注理由</label><textarea id="f-lostReason"></textarea>
-      </div>
-    </div>
-
-    <div class="section-label">受注</div>
-    <div class="field-grid">
-      <div class="field"><label>受注日</label><input type="date" id="f-orderDate"></div>
-      <div class="field full">
-        <label>受注の決め手</label><textarea id="f-winFactor"></textarea>
-      </div>
-    </div>
-
-    <div class="section-label">工事日程</div>
-    <div class="field-grid">
+      <div class="field full" id="lostReasonField"><label>失注理由</label><textarea id="f-lostReason"></textarea></div>
+      <div class="field full"><label>受注の決め手</label><textarea id="f-winFactor"></textarea></div>
       <div class="field"><label>工事開始日</label><input type="date" id="f-constructionStart"></div>
       <div class="field"><label>工事終了日</label><input type="date" id="f-constructionEnd"></div>
-    </div>
-
-    <div class="section-label">仕入・請求</div>
-    <div class="field-grid">
       <div class="field"><label>仕入先</label><input id="f-supplier"></div>
       <div class="field"><label>仕入日</label><input type="date" id="f-purchaseDate"></div>
       <div class="field"><label>仕入金額（円）</label><input type="number" id="f-purchaseAmount"></div>
       <div class="field"><label>請求予定月</label><input type="month" id="f-billingMonth"></div>
     </div>
 
-    <div class="section-label">備考</div>
-    <div class="field-grid">
-      <div class="field full"><textarea id="f-note"></textarea></div>
-    </div>
-
     <div id="modalConflict" class="modal-conflict" style="display:none;"></div>
 
     <div class="modal-actions">
-      <button class="btn btn-ghost" id="btnCancel">キャンセル</button>
+      <button class="btn btn-ghost" id="btnCancel">閉じる</button>
       <button class="btn btn-primary" id="btnSave">保存</button>
     </div>
   </div>
@@ -302,10 +260,12 @@
 
 <script>
 // ==== 設定：GASウェブアプリのURLをここに設定してください ====
-const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyhBewhP-dAjrW6WCCQtV-kT4A5i_10MfgsvbGBq-GZDFRpSGE5yq-nYHBaNInpyU64/exec';
+const WEBAPP_URL = 'PASTE_YOUR_GAS_WEBAPP_URL_HERE';
 
 let deals = [];
 let showLost = false;
+let branchFilterVal = '';
+let assigneeFilterVal = '';
 
 function gasGet(action, params={}){
   const qs = new URLSearchParams({ action, ...params }).toString();
@@ -326,12 +286,20 @@ function fmtYen(n){
 function fmtDate(d){
   if(!d) return '';
   const dt = new Date(d);
-  if(isNaN(dt.getTime())) return d;
+  if(isNaN(dt.getTime())) return String(d);
   return `${dt.getMonth()+1}/${dt.getDate()}`;
+}
+function toDateInputVal(d){
+  if(!d) return '';
+  const dt = new Date(d);
+  if(isNaN(dt.getTime())) return '';
+  return dt.toISOString().slice(0,10);
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 function elapsedBadge(deal){
-  if(deal.status !== '見積中') return '';
   const days = deal.elapsedDays;
   if(days === null || days === undefined) return '';
   let cls = 'b-green';
@@ -341,7 +309,6 @@ function elapsedBadge(deal){
 }
 
 function findConflicts(){
-  // 表示中の全案件から、受注/工事中どうしの工事日重複を検出
   const active = deals.filter(d => (d.status === '受注' || d.status === '工事中') && d.constructionStart);
   const conflictIds = new Set();
   const pairs = [];
@@ -361,7 +328,27 @@ function findConflicts(){
   return { conflictIds, pairs };
 }
 
+function visibleDeals(){
+  return deals.filter(d =>
+    (!branchFilterVal || d.branch === branchFilterVal) &&
+    (!assigneeFilterVal || d.assignee === assigneeFilterVal)
+  );
+}
+
+function populateFilters(){
+  const branchSel = document.getElementById('branchFilter');
+  const assigneeSel = document.getElementById('assigneeFilter');
+  const branches = [...new Set(deals.map(d => d.branch))].sort();
+  const assignees = [...new Set(deals.map(d => d.assignee).filter(Boolean))].sort();
+
+  const curBranch = branchSel.value, curAssignee = assigneeSel.value;
+  branchSel.innerHTML = '<option value="">すべての拠点</option>' + branches.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
+  assigneeSel.innerHTML = '<option value="">すべての担当者</option>' + assignees.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('');
+  branchSel.value = curBranch; assigneeSel.value = curAssignee;
+}
+
 function render(){
+  const visible = visibleDeals();
   const { conflictIds, pairs } = findConflicts();
 
   const banner = document.getElementById('conflictBanner');
@@ -372,11 +359,12 @@ function render(){
     banner.style.display = 'none';
   }
 
-  ['見積中','受注','工事中','完了','失注'].forEach(status => {
-    const list = deals.filter(d => d.status === status)
-      .sort((a,b) => (a.constructionStart||a.quoteDate||'').localeCompare(b.constructionStart||b.quoteDate||''));
-    document.getElementById(`cnt-${status}`).textContent = list.length;
-    const body = document.getElementById(`col-${status}`);
+  ['', '見積中','受注','工事中','完了','失注'].forEach(status => {
+    const list = visible.filter(d => (d.status || '') === status)
+      .sort((a,b) => (a.constructionStart||a.quoteDate||a.occurredDate||'').toString().localeCompare((b.constructionStart||b.quoteDate||b.occurredDate||'').toString()));
+    const key = status || '未設定';
+    document.getElementById(`cnt-${key}`).textContent = list.length;
+    const body = document.getElementById(`col-${key}`);
     body.innerHTML = '';
     list.forEach(d => body.appendChild(renderCard(d, conflictIds.has(d.id))));
   });
@@ -391,21 +379,24 @@ function renderCard(d, hasConflict){
   el.dataset.id = d.id;
 
   let dateLine = '';
-  if(d.status === '見積中') dateLine = `<span>見積 ${fmtDate(d.quoteDate)}</span>`;
-  else if(d.constructionStart) dateLine = `<span>工事 ${fmtDate(d.constructionStart)}〜${fmtDate(d.constructionEnd)}</span>`;
-  else if(d.orderDate) dateLine = `<span>受注 ${fmtDate(d.orderDate)}</span>`;
+  if(d.constructionStart) dateLine = `工事 ${fmtDate(d.constructionStart)}〜${fmtDate(d.constructionEnd)}`;
+  else if(d.quoteDate) dateLine = `見積 ${fmtDate(d.quoteDate)}`;
+  else if(d.occurredDate) dateLine = `発生 ${fmtDate(d.occurredDate)}`;
 
   el.innerHTML = `
+    <span class="branch-tag">${escapeHtml(d.branch)}</span>
     <div class="cname">${escapeHtml(d.customerName||'(顧客未設定)')}</div>
-    <div class="pname">${escapeHtml(d.projectName||'')}</div>
+    <div class="pname">${escapeHtml(d.projectName||d.siteName||'')}</div>
     <div class="row">
-      <span class="amt">${fmtYen(d.quoteAmount)}</span>
+      <span class="amt">${fmtYen(d.confirmedAmount || d.quoteAmount)}</span>
+      ${d.rank ? `<span class="badge b-grey">${escapeHtml(d.rank)}</span>` : ''}
       ${elapsedBadge(d)}
     </div>
-    <div class="row mono" style="color:var(--ink-soft); font-size:11px;">
-      ${dateLine}
-      ${d.billingMonth ? `<span class="badge b-grey">請求 ${d.billingMonth}</span>` : ''}
+    <div class="row mono" style="color:var(--ink-soft); font-size:10.5px;">
+      <span>${dateLine}</span>
+      ${d.assignee ? `<span>${escapeHtml(d.assignee)}</span>` : ''}
     </div>
+    ${d.currentStatus ? `<div class="legacy-status">${escapeHtml(d.currentStatus)}</div>` : ''}
     ${hasConflict ? `<div class="conflict-flag">⚠ 工事日が他案件と重複</div>` : ''}
   `;
 
@@ -415,16 +406,13 @@ function renderCard(d, hasConflict){
   return el;
 }
 
-function escapeHtml(s){
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
+// ==== フィルタ ====
+document.getElementById('branchFilter').addEventListener('change', e => { branchFilterVal = e.target.value; render(); });
+document.getElementById('assigneeFilter').addEventListener('change', e => { assigneeFilterVal = e.target.value; render(); });
 
 // ==== ドラッグ&ドロップでステータス変更 ====
 document.querySelectorAll('.col-body').forEach(body => {
-  body.addEventListener('dragover', e => {
-    e.preventDefault();
-    body.closest('.col').classList.add('dragover');
-  });
+  body.addEventListener('dragover', e => { e.preventDefault(); body.closest('.col').classList.add('dragover'); });
   body.addEventListener('dragleave', () => body.closest('.col').classList.remove('dragover'));
   body.addEventListener('drop', async e => {
     e.preventDefault();
@@ -434,7 +422,7 @@ document.querySelectorAll('.col-body').forEach(body => {
     const id = dragging.dataset.id;
     const newStatus = body.closest('.col').dataset.status;
     const deal = deals.find(d => d.id === id);
-    if(!deal || deal.status === newStatus) return;
+    if(!deal || (deal.status||'') === newStatus) return;
 
     if(newStatus === '失注' && !deal.lostReason){
       const reason = prompt('失注理由を入力してください：');
@@ -448,10 +436,10 @@ document.querySelectorAll('.col-body').forEach(body => {
     }
     deal.status = newStatus;
     render();
-    const res = await gasPost('deal_upsert', deal);
+    const res = await gasPost('deal_extra_upsert', deal);
     if(res.status === 'success' && res.data.conflicts && res.data.conflicts.length){
       alert('注意：工事日が以下の案件と重複しています。\n' +
-        res.data.conflicts.map(c => `・${c.projectName||c.customerName}（${c.constructionStart}〜${c.constructionEnd}）`).join('\n'));
+        res.data.conflicts.map(c => `・${c.id}（${fmtDate(c.constructionStart)}〜${fmtDate(c.constructionEnd)}）`).join('\n'));
     }
   });
 });
@@ -464,45 +452,53 @@ document.getElementById('toggleLost').addEventListener('click', () => {
 
 // ==== モーダル ====
 const overlay = document.getElementById('overlay');
-const fields = ['id','customerName','projectName','assignee','status','quoteDate','quoteAmount',
-  'lostReason','orderDate','winFactor','constructionStart','constructionEnd',
-  'supplier','purchaseDate','purchaseAmount','billingMonth','note'];
+const roFields = ['dealNo','assignee','customerName','siteName','projectName','summary','occurredDate','rank','quoteAmount','confirmedAmount','expectedOrderMonth','profitRate','currentStatus','pendingIssue'];
+const editFields = ['status','quoteDate','lostReason','winFactor','constructionStart','constructionEnd','supplier','purchaseDate','purchaseAmount','billingMonth'];
 
 function openModal(deal){
-  document.getElementById('modalTitle').textContent = deal ? '案件を編集' : '新規案件';
-  document.getElementById('btnDelete').style.display = deal ? 'inline-block' : 'none';
-  document.getElementById('modalConflict').style.display = 'none';
-  fields.forEach(f => {
-    const el = document.getElementById('f-' + f);
-    el.value = deal && deal[f] !== undefined ? deal[f] : '';
+  document.getElementById('m-branch').textContent = deal.branch;
+  document.getElementById('modalTitle').textContent = deal.projectName || deal.customerName || '案件詳細';
+  document.getElementById('f-id').value = deal.id;
+
+  roFields.forEach(f => {
+    const el = document.getElementById('ro-' + f);
+    let v = deal[f];
+    if(f === 'occurredDate') v = fmtDate(v) ? (new Date(v)).toLocaleDateString('ja-JP') : '';
+    if(f === 'quoteAmount' || f === 'confirmedAmount') v = fmtYen(v);
+    el.textContent = v || '－';
   });
-  if(!deal) document.getElementById('f-status').value = '見積中';
+
+  editFields.forEach(f => {
+    const el = document.getElementById('f-' + f);
+    if(f === 'quoteDate' || f === 'constructionStart' || f === 'constructionEnd' || f === 'purchaseDate'){
+      el.value = toDateInputVal(deal[f]);
+    } else {
+      el.value = deal[f] || '';
+    }
+  });
+
+  document.getElementById('modalConflict').style.display = 'none';
   overlay.classList.add('open');
 }
 function closeModal(){ overlay.classList.remove('open'); }
 
-document.getElementById('btnNew').addEventListener('click', () => openModal(null));
 document.getElementById('btnCancel').addEventListener('click', closeModal);
 overlay.addEventListener('click', e => { if(e.target === overlay) closeModal(); });
 
 document.getElementById('btnSave').addEventListener('click', async () => {
-  const data = {};
-  fields.forEach(f => {
-    const v = document.getElementById('f-' + f).value;
-    if(v !== '') data[f] = v;
-  });
-  if(!data.id) delete data.id;
+  const data = { id: document.getElementById('f-id').value };
+  editFields.forEach(f => { data[f] = document.getElementById('f-' + f).value; });
 
   const btn = document.getElementById('btnSave');
   btn.disabled = true; btn.textContent = '保存中…';
   try{
-    const res = await gasPost('deal_upsert', data);
+    const res = await gasPost('deal_extra_upsert', data);
     if(res.status !== 'success'){ alert('保存に失敗しました：' + res.data); return; }
     if(res.data.conflicts && res.data.conflicts.length){
       document.getElementById('modalConflict').style.display = 'block';
       document.getElementById('modalConflict').textContent =
         '⚠ 工事日が重複しています： ' +
-        res.data.conflicts.map(c => `${c.projectName||c.customerName}（${c.constructionStart}〜${c.constructionEnd}）`).join(' / ');
+        res.data.conflicts.map(c => `${c.id}（${fmtDate(c.constructionStart)}〜${fmtDate(c.constructionEnd)}）`).join(' / ');
     }
     await loadDeals();
     closeModal();
@@ -511,20 +507,12 @@ document.getElementById('btnSave').addEventListener('click', async () => {
   }
 });
 
-document.getElementById('btnDelete').addEventListener('click', async () => {
-  const id = document.getElementById('f-id').value;
-  if(!id) return;
-  if(!confirm('この案件を削除しますか？')) return;
-  await gasPost('deal_delete', { id });
-  await loadDeals();
-  closeModal();
-});
-
-// ==== 初期ロード＋自動更新（他スタッフの直接編集を反映） ====
+// ==== 初期ロード＋自動更新 ====
 async function loadDeals(){
   const res = await gasGet('deal_list');
   if(res.status === 'success'){
     deals = res.data;
+    populateFilters();
     render();
     const now = new Date();
     document.getElementById('lastUpdated').textContent =
@@ -534,21 +522,15 @@ async function loadDeals(){
   }
 }
 
-const POLL_INTERVAL_MS = 30000; // 30秒ごとにスプレッドシートを読み直す
-
+const POLL_INTERVAL_MS = 30000;
 function startPolling(){
   setInterval(() => {
-    // モーダル編集中・ドラッグ中は割り込まない
     if(overlay.classList.contains('open')) return;
     if(document.querySelector('.card.dragging')) return;
     loadDeals();
   }, POLL_INTERVAL_MS);
-
-  // タブに戻ってきた瞬間にも即再取得
   document.addEventListener('visibilitychange', () => {
-    if(document.visibilityState === 'visible' && !overlay.classList.contains('open')){
-      loadDeals();
-    }
+    if(document.visibilityState === 'visible' && !overlay.classList.contains('open')) loadDeals();
   });
 }
 

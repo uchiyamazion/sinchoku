@@ -1,7 +1,9 @@
 /**
- * 案件進捗管理アプリ（独立版）
- * このスプレッドシート専用のGASプロジェクトとして使用してください。
- * fron-kanri / ac-inspection とは無関係の独立したバックエンドです。
+ * 案件進捗管理アプリ（実データ連携版）
+ * 「自社案件進捗管理表」の実シート（営業部・営業部（ビルメン）・１課・２課・３課・函館・旭川）を
+ * 直接読み込み、既存列には一切書き込まない。
+ * ステータス・失注理由・受注決め手・工事日・仕入情報などの追加項目は
+ * 別シート「案件進捗_追加情報」に 案件No(+拠点) をキーとして保持し、読み込み時にJOINして返す。
  */
 
 const SS = () => SpreadsheetApp.getActiveSpreadsheet();
@@ -17,28 +19,43 @@ function makeErr(msg) {
   return makeRes(msg, 'error');
 }
 
-function sheetToObjects(sh) {
-  const vals = sh.getDataRange().getValues();
-  if (vals.length < 2) return [];
-  const headers = vals[0];
-  return vals.slice(1).map(row => {
-    const obj = {};
-    headers.forEach((h, i) => { obj[h] = row[i]; });
-    return obj;
-  });
+// ════════════════════════════════════════════════
+// 設定：既存シート一覧・列位置
+// ════════════════════════════════════════════════
+
+const SOURCE_SHEETS = ['営業部', '営業部（ビルメン）', '１課', '２課', '３課', '函館', '旭川'];
+const HEADER_ROW = 8;
+const DATA_START_ROW = 9;
+
+// B列(2)〜S列(19)の共通レイアウト
+const COL = {
+  no: 2, dealNo: 3, customerName: 4, siteName: 5, projectName: 6,
+  summary: 7, occurredDate: 8, source: 9, assignee: 10,
+  quoteAmount: 11, plannedProfit: 12, rank: 13, expectedOrderMonth: 14,
+  currentStatus: 15, pendingIssue: 16, confirmedAmount: 17, profit: 18, profitRate: 19
+};
+
+const EXTRA_SHEET_NAME = '案件進捗_追加情報';
+const EXTRA_HEADERS = [
+  'id', 'status', 'quoteDate', 'lostReason', 'winFactor',
+  'constructionStart', 'constructionEnd',
+  'supplier', 'purchaseDate', 'purchaseAmount', 'billingMonth',
+  'updatedAt'
+];
+
+function ensureExtraSheet_() {
+  let sh = sheet(EXTRA_SHEET_NAME);
+  if (!sh) {
+    sh = SS().insertSheet(EXTRA_SHEET_NAME);
+    sh.appendRow(EXTRA_HEADERS);
+  }
+  return sh;
 }
 
-function deleteRowById(sh, id) {
-  const vals = sh.getDataRange().getValues();
-  const headers = vals[0];
-  const idCol = headers.indexOf('id');
-  for (let i = 1; i < vals.length; i++) {
-    if (vals[i][idCol] == id) {
-      sh.deleteRow(i + 1);
-      return makeRes({ id });
-    }
-  }
-  return makeErr('対象レコードが見つかりません: ' + id);
+// 初回セットアップ用：一度手動実行してください
+function setup() {
+  ensureExtraSheet_();
+  Logger.log('セットアップ完了：「' + EXTRA_SHEET_NAME + '」シートを作成しました。');
 }
 
 // ════════════════════════════════════════════════
@@ -65,9 +82,8 @@ function doPost(e) {
     const payload = body.payload || body;
 
     switch (action) {
-      case 'deal_upsert': return dealUpsert(payload.data || payload);
-      case 'deal_delete': return dealDelete(payload.id || payload);
-      default:            return makeErr('不明なaction: ' + action);
+      case 'deal_extra_upsert': return dealExtraUpsert(payload.data || payload);
+      default:                  return makeErr('不明なaction: ' + action);
     }
   } catch (err) {
     return makeErr(err.toString());
@@ -75,57 +91,117 @@ function doPost(e) {
 }
 
 // ════════════════════════════════════════════════
-// 案件管理（見積〜受注〜工事〜請求のパイプライン）
+// 既存シートの読み込み（読み取り専用）
 // ════════════════════════════════════════════════
 
-const DEAL_SHEET_NAME = '案件管理';
-const DEAL_HEADERS = [
-  'id', 'customerName', 'projectName',
-  'quoteDate', 'quoteAmount',
-  'status',                 // 見積中 / 受注 / 失注 / 工事中 / 完了
-  'orderDate', 'lostReason', 'winFactor',
-  'constructionStart', 'constructionEnd',
-  'supplier', 'purchaseDate', 'purchaseAmount', 'billingMonth',
-  'assignee', 'note',
-  'createdAt', 'updatedAt'
-];
+function readSourceSheet_(sheetName) {
+  const sh = sheet(sheetName);
+  if (!sh) return [];
+  const lastRow = sh.getLastRow();
+  if (lastRow < DATA_START_ROW) return [];
 
-function ensureDealSheet_() {
-  let sh = sheet(DEAL_SHEET_NAME);
-  if (!sh) {
-    sh = SS().insertSheet(DEAL_SHEET_NAME);
-    sh.appendRow(DEAL_HEADERS);
-  }
-  return sh;
+  const numRows = lastRow - DATA_START_ROW + 1;
+  const vals = sh.getRange(DATA_START_ROW, 1, numRows, 19).getValues();
+
+  const out = [];
+  vals.forEach((row, i) => {
+    const dealNo = row[COL.dealNo - 1];
+    const customerName = row[COL.customerName - 1];
+    // 実績行やただの空行はスキップ（案件No・顧客名がどちらも空なら非データ行）
+    if ((dealNo === '' || dealNo === null) && (customerName === '' || customerName === null)) return;
+
+    const rowNum = DATA_START_ROW + i;
+    const id = sheetName + '::' + (dealNo !== '' && dealNo !== null ? dealNo : ('r' + rowNum));
+
+    out.push({
+      id: id,
+      branch: sheetName,
+      dealNo: dealNo || '',
+      rowNum: rowNum,
+      customerName: customerName || '',
+      siteName: row[COL.siteName - 1] || '',
+      projectName: row[COL.projectName - 1] || '',
+      summary: row[COL.summary - 1] || '',
+      occurredDate: row[COL.occurredDate - 1] || '',
+      source: row[COL.source - 1] || '',
+      assignee: row[COL.assignee - 1] || '',
+      quoteAmount: row[COL.quoteAmount - 1] || '',
+      plannedProfit: row[COL.plannedProfit - 1] || '',
+      rank: row[COL.rank - 1] || '',
+      expectedOrderMonth: row[COL.expectedOrderMonth - 1] || '',
+      currentStatus: row[COL.currentStatus - 1] || '',
+      pendingIssue: row[COL.pendingIssue - 1] || '',
+      confirmedAmount: row[COL.confirmedAmount - 1] || '',
+      profit: row[COL.profit - 1] || '',
+      profitRate: row[COL.profitRate - 1] || '',
+    });
+  });
+  return out;
 }
 
-// 初回セットアップ用：手動で一度実行するとシートを作成します
-function setup() {
-  ensureDealSheet_();
-  Logger.log('セットアップ完了：「' + DEAL_SHEET_NAME + '」シートを作成しました。');
+function readAllSources_() {
+  let all = [];
+  SOURCE_SHEETS.forEach(name => {
+    all = all.concat(readSourceSheet_(name));
+  });
+  return all;
 }
 
-function nextDealId_(sh) {
+function readExtraMap_() {
+  const sh = ensureExtraSheet_();
   const vals = sh.getDataRange().getValues();
-  let max = 0;
+  const map = {};
+  if (vals.length < 2) return map;
+  const headers = vals[0];
   for (let i = 1; i < vals.length; i++) {
-    const m = String(vals[i][0]).match(/^D(\d+)$/);
-    if (m) max = Math.max(max, parseInt(m[1], 10));
+    const obj = {};
+    headers.forEach((h, c) => { obj[h] = vals[i][c]; });
+    if (obj.id) map[obj.id] = obj;
   }
-  return 'D' + String(max + 1).padStart(4, '0');
+  return map;
 }
 
-// 経過日数（見積中のみ計算。それ以外はnull）
-function calcElapsedDays_(quoteDate, status) {
-  if (status !== '見積中' || !quoteDate) return null;
-  const d = new Date(quoteDate);
+// 経過日数（見積提出日 優先、無ければ発生日。ステータスが受注系/失注なら計算しない）
+function calcElapsedDays_(baseDate, status) {
+  if (status && ['受注', '工事中', '完了', '失注'].indexOf(status) >= 0) return null;
+  if (!baseDate) return null;
+  const d = new Date(baseDate);
   if (isNaN(d.getTime())) return null;
   const now = new Date();
   const diffMs = now.setHours(0,0,0,0) - new Date(d).setHours(0,0,0,0);
   return Math.floor(diffMs / 86400000);
 }
 
-// 期間重複判定
+function dealList() {
+  const sources = readAllSources_();
+  const extraMap = readExtraMap_();
+
+  const merged = sources.map(d => {
+    const extra = extraMap[d.id] || {};
+    const status = extra.status || '';
+    const baseDate = extra.quoteDate || d.occurredDate;
+    return Object.assign({}, d, {
+      status: status,
+      quoteDate: extra.quoteDate || '',
+      lostReason: extra.lostReason || '',
+      winFactor: extra.winFactor || '',
+      constructionStart: extra.constructionStart || '',
+      constructionEnd: extra.constructionEnd || '',
+      supplier: extra.supplier || '',
+      purchaseDate: extra.purchaseDate || '',
+      purchaseAmount: extra.purchaseAmount || '',
+      billingMonth: extra.billingMonth || '',
+      elapsedDays: calcElapsedDays_(baseDate, status)
+    });
+  });
+
+  return makeRes(merged);
+}
+
+// ════════════════════════════════════════════════
+// 追加情報の upsert（既存シートには一切書き込まない）
+// ════════════════════════════════════════════════
+
 function rangesOverlap_(aStart, aEnd, bStart, bEnd) {
   if (!aStart || !bStart) return false;
   const as = new Date(aStart).getTime();
@@ -135,26 +211,18 @@ function rangesOverlap_(aStart, aEnd, bStart, bEnd) {
   return as <= be && bs <= ae;
 }
 
-function dealList() {
-  const sh = ensureDealSheet_();
-  const rows = sheetToObjects(sh);
-  rows.forEach(r => {
-    r.elapsedDays = calcElapsedDays_(r.quoteDate, r.status);
-  });
-  return makeRes(rows);
-}
-
-function dealUpsert(data) {
+function dealExtraUpsert(data) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    const sh = ensureDealSheet_();
+    if (!data.id) return makeErr('idが指定されていません');
+
+    const sh = ensureExtraSheet_();
     const vals = sh.getDataRange().getValues();
     const headers = vals[0];
     const idCol = headers.indexOf('id');
-    const now = new Date();
 
-    // 工事日重複チェック（自分自身と失注案件は除外）
+    // 工事日重複チェック（他案件の追加情報のみが対象。失注は除外）
     const conflicts = [];
     if (data.constructionStart) {
       for (let i = 1; i < vals.length; i++) {
@@ -165,42 +233,27 @@ function dealUpsert(data) {
         const rowStart = vals[i][headers.indexOf('constructionStart')];
         const rowEnd = vals[i][headers.indexOf('constructionEnd')];
         if (rangesOverlap_(data.constructionStart, data.constructionEnd, rowStart, rowEnd)) {
-          conflicts.push({
-            id: rowId,
-            projectName: vals[i][headers.indexOf('projectName')],
-            customerName: vals[i][headers.indexOf('customerName')],
-            constructionStart: rowStart,
-            constructionEnd: rowEnd
-          });
+          conflicts.push({ id: rowId, constructionStart: rowStart, constructionEnd: rowEnd });
         }
       }
     }
 
-    if (data.id) {
-      for (let i = 1; i < vals.length; i++) {
-        if (vals[i][idCol] == data.id) {
-          data.updatedAt = now;
-          const row = headers.map(h => (data[h] !== undefined ? data[h] : vals[i][headers.indexOf(h)]));
-          sh.getRange(i + 1, 1, 1, headers.length).setValues([row]);
-          return makeRes({ id: data.id, conflicts });
-        }
+    data.updatedAt = new Date();
+
+    for (let i = 1; i < vals.length; i++) {
+      if (vals[i][idCol] == data.id) {
+        const row = headers.map(h => (data[h] !== undefined ? data[h] : vals[i][headers.indexOf(h)]));
+        sh.getRange(i + 1, 1, 1, headers.length).setValues([row]);
+        return makeRes({ id: data.id, conflicts });
       }
     }
 
-    data.id = nextDealId_(sh);
-    data.createdAt = now;
-    data.updatedAt = now;
     const row = headers.map(h => (data[h] !== undefined ? data[h] : ''));
     sh.appendRow(row);
     return makeRes({ id: data.id, conflicts });
   } catch (err) {
-    return makeErr('dealUpsert error: ' + err.toString());
+    return makeErr('dealExtraUpsert error: ' + err.toString());
   } finally {
     lock.releaseLock();
   }
-}
-
-function dealDelete(id) {
-  const sh = ensureDealSheet_();
-  return deleteRowById(sh, id);
 }
