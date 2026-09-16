@@ -167,6 +167,15 @@
     <select id="assigneeFilter">
       <option value="">すべての担当者</option>
     </select>
+    <select id="sortSelect">
+      <option value="date">日付順（工事日→見積提出日→発生日）</option>
+      <option value="amountDesc">金額が大きい順</option>
+      <option value="amountAsc">金額が小さい順</option>
+      <option value="elapsedDesc">経過日数が長い順</option>
+      <option value="rank">ランク順（S→A→B→C→E）</option>
+      <option value="assignee">担当者順</option>
+      <option value="customerName">顧客名順</option>
+    </select>
   </div>
 </header>
 
@@ -178,7 +187,7 @@
     <div class="col-body" id="col-未設定"></div>
   </div>
   <div class="col" data-status="見積中">
-    <div class="col-head"><span class="label">見積中</span><span class="count mono" id="cnt-見積中">0</span></div>
+    <div class="col-head"><span class="label">見積提出中</span><span class="count mono" id="cnt-見積中">0</span></div>
     <div class="col-body" id="col-見積中"></div>
   </div>
   <div class="col" data-status="受注">
@@ -209,10 +218,10 @@
 
     <div class="section-label">基本情報（元シートより読み取り専用・編集はスプレッドシート側で）</div>
     <div class="readonly-grid">
+      <div class="ro-item full"><span class="ro-label">現場名</span><span class="ro-val" id="ro-siteName"></span></div>
       <div class="ro-item"><span class="ro-label">案件No</span><span class="ro-val mono" id="ro-dealNo"></span></div>
       <div class="ro-item"><span class="ro-label">担当者</span><span class="ro-val" id="ro-assignee"></span></div>
       <div class="ro-item"><span class="ro-label">顧客名</span><span class="ro-val" id="ro-customerName"></span></div>
-      <div class="ro-item"><span class="ro-label">現場名</span><span class="ro-val" id="ro-siteName"></span></div>
       <div class="ro-item full"><span class="ro-label">案件名</span><span class="ro-val" id="ro-projectName"></span></div>
       <div class="ro-item full"><span class="ro-label">案件概略</span><span class="ro-val" id="ro-summary"></span></div>
       <div class="ro-item"><span class="ro-label">発生日</span><span class="ro-val" id="ro-occurredDate"></span></div>
@@ -231,7 +240,7 @@
         <label>ステータス</label>
         <select id="f-status">
           <option value="">未設定</option>
-          <option value="見積中">見積中</option>
+          <option value="見積中">見積提出中</option>
           <option value="受注">受注</option>
           <option value="工事中">工事中</option>
           <option value="完了">完了</option>
@@ -266,6 +275,7 @@ let deals = [];
 let showLost = false;
 let branchFilterVal = '';
 let assigneeFilterVal = '';
+let sortSelectVal = 'date';
 
 function gasGet(action, params={}){
   const qs = new URLSearchParams({ action, ...params }).toString();
@@ -308,8 +318,11 @@ function elapsedBadge(deal){
   return `<span class="badge ${cls}">経過${days}日</span>`;
 }
 
+// 明示的なステータスが無くても、見積提出日が入っていれば自動的に「見積提出中」扱いにする
+function effStatus(d){ return d.status || (d.quoteDate ? '見積中' : ''); }
+
 function findConflicts(){
-  const active = deals.filter(d => (d.status === '受注' || d.status === '工事中') && d.constructionStart);
+  const active = deals.filter(d => (effStatus(d) === '受注' || effStatus(d) === '工事中') && d.constructionStart);
   const conflictIds = new Set();
   const pairs = [];
   for(let i=0;i<active.length;i++){
@@ -359,9 +372,39 @@ function render(){
     banner.style.display = 'none';
   }
 
+  // 明示的なステータスが無くても、見積提出日が入っていれば自動的に「見積提出中」扱いにする
+  const effStatus = d => d.status || (d.quoteDate ? '見積中' : '');
+
+  const RANK_ORDER = { 'S':0, 'A':1, 'B':2, 'C':3, 'E':4 };
+  function amountOf(d){
+    const v = d.confirmedAmount !== '' && d.confirmedAmount != null ? d.confirmedAmount : d.quoteAmount;
+    const n = Number(v);
+    return isNaN(n) ? 0 : n;
+  }
+  function sortDeals(list){
+    const sorted = list.slice();
+    switch(sortSelectVal){
+      case 'amountDesc':
+        sorted.sort((a,b) => amountOf(b) - amountOf(a)); break;
+      case 'amountAsc':
+        sorted.sort((a,b) => amountOf(a) - amountOf(b)); break;
+      case 'elapsedDesc':
+        sorted.sort((a,b) => (b.elapsedDays ?? -1) - (a.elapsedDays ?? -1)); break;
+      case 'rank':
+        sorted.sort((a,b) => (RANK_ORDER[a.rank] ?? 99) - (RANK_ORDER[b.rank] ?? 99)); break;
+      case 'assignee':
+        sorted.sort((a,b) => String(a.assignee||'').localeCompare(String(b.assignee||''), 'ja')); break;
+      case 'customerName':
+        sorted.sort((a,b) => String(a.customerName||'').localeCompare(String(b.customerName||''), 'ja')); break;
+      case 'date':
+      default:
+        sorted.sort((a,b) => (a.constructionStart||a.quoteDate||a.occurredDate||'').toString().localeCompare((b.constructionStart||b.quoteDate||b.occurredDate||'').toString()));
+    }
+    return sorted;
+  }
+
   ['', '見積中','受注','工事中','完了','失注'].forEach(status => {
-    const list = visible.filter(d => (d.status || '') === status)
-      .sort((a,b) => (a.constructionStart||a.quoteDate||a.occurredDate||'').toString().localeCompare((b.constructionStart||b.quoteDate||b.occurredDate||'').toString()));
+    const list = sortDeals(visible.filter(d => effStatus(d) === status));
     const key = status || '未設定';
     document.getElementById(`cnt-${key}`).textContent = list.length;
     const body = document.getElementById(`col-${key}`);
@@ -383,12 +426,22 @@ function renderCard(d, hasConflict){
   else if(d.quoteDate) dateLine = `見積 ${fmtDate(d.quoteDate)}`;
   else if(d.occurredDate) dateLine = `発生 ${fmtDate(d.occurredDate)}`;
 
+  const hasConfirmed = d.confirmedAmount !== '' && d.confirmedAmount != null;
+  const amountLine = hasConfirmed
+    ? `<span class="amt">確定 ${fmtYen(d.confirmedAmount)}</span>`
+    : `<span class="amt">見積 ${fmtYen(d.quoteAmount)}</span>`;
+  const subAmount = (hasConfirmed && d.quoteAmount)
+    ? `<span class="badge b-grey mono">見積時 ${fmtYen(d.quoteAmount)}</span>` : '';
+
   el.innerHTML = `
     <span class="branch-tag">${escapeHtml(d.branch)}</span>
-    <div class="cname">${escapeHtml(d.customerName||'(顧客未設定)')}</div>
-    <div class="pname">${escapeHtml(d.projectName||d.siteName||'')}</div>
+    <div class="cname">${escapeHtml(d.siteName || d.projectName || '(現場未設定)')}</div>
+    <div class="pname">${escapeHtml(d.customerName||'')}${d.projectName && d.siteName ? '　' + escapeHtml(d.projectName) : ''}</div>
     <div class="row">
-      <span class="amt">${fmtYen(d.confirmedAmount || d.quoteAmount)}</span>
+      ${amountLine}
+      ${subAmount}
+    </div>
+    <div class="row">
       ${d.rank ? `<span class="badge b-grey">${escapeHtml(d.rank)}</span>` : ''}
       ${elapsedBadge(d)}
     </div>
@@ -406,9 +459,10 @@ function renderCard(d, hasConflict){
   return el;
 }
 
-// ==== フィルタ ====
+// ==== フィルタ・ソート ====
 document.getElementById('branchFilter').addEventListener('change', e => { branchFilterVal = e.target.value; render(); });
 document.getElementById('assigneeFilter').addEventListener('change', e => { assigneeFilterVal = e.target.value; render(); });
+document.getElementById('sortSelect').addEventListener('change', e => { sortSelectVal = e.target.value; render(); });
 
 // ==== ドラッグ&ドロップでステータス変更 ====
 document.querySelectorAll('.col-body').forEach(body => {
