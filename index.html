@@ -200,6 +200,7 @@
       <option value="assignee">担当者順</option>
       <option value="customerName">顧客名順</option>
     </select>
+    <button class="btn btn-primary" id="btnNew">＋ 新規案件</button>
   </div>
 </header>
 
@@ -264,6 +265,13 @@
     <span class="branch-tag" id="m-branch"></span>
     <h2 id="modalTitle">案件詳細</h2>
     <input type="hidden" id="f-id">
+
+    <div class="field-grid" id="newBranchField" style="display:none; margin-bottom:14px;">
+      <div class="field full">
+        <label>拠点（作成後は変更できません）</label>
+        <select id="c-branch"></select>
+      </div>
+    </div>
 
     <div class="section-label">基本情報（編集すると元のスプレッドシートに直接反映されます）</div>
     <div class="field-grid">
@@ -622,12 +630,37 @@ document.getElementById('toggleLost').addEventListener('click', () => {
 
 // ==== モーダル ====
 const overlay = document.getElementById('overlay');
+const BRANCHES = ['営業部','営業部（ビルメン）','１課','２課','３課','函館','旭川'];
 const coreFields = ['dealNo','assignee','customerName','siteName','projectName','summary','occurredDate','rank','quoteAmount','confirmedAmount','expectedOrderMonth','profitRate','currentStatus','pendingIssue'];
 const editFields = ['status','quoteDate','lostReason','winFactor','constructionStart','constructionEnd','supplier','purchaseDate','purchaseAmount','billingMonth'];
 let currentDeal = null;
+let isNewMode = false;
+
+function clearForm(){
+  coreFields.forEach(f => { const el = document.getElementById('c-' + f); if(el) el.value = ''; });
+  editFields.forEach(f => { const el = document.getElementById('f-' + f); if(el) el.value = ''; });
+}
+
+function openNewModal(){
+  currentDeal = null;
+  isNewMode = true;
+  document.getElementById('m-branch').textContent = '';
+  document.getElementById('modalTitle').textContent = '新規案件';
+  document.getElementById('f-id').value = '';
+  clearForm();
+
+  const branchSel = document.getElementById('c-branch');
+  branchSel.innerHTML = BRANCHES.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
+  document.getElementById('newBranchField').style.display = 'block';
+
+  document.getElementById('modalConflict').style.display = 'none';
+  overlay.classList.add('open');
+}
 
 function openModal(deal){
   currentDeal = deal;
+  isNewMode = false;
+  document.getElementById('newBranchField').style.display = 'none';
   document.getElementById('m-branch').textContent = deal.branch;
   document.getElementById('modalTitle').textContent = deal.projectName || deal.customerName || '案件詳細';
   document.getElementById('f-id').value = deal.id;
@@ -651,26 +684,49 @@ function openModal(deal){
   document.getElementById('modalConflict').style.display = 'none';
   overlay.classList.add('open');
 }
-function closeModal(){ overlay.classList.remove('open'); currentDeal = null; }
+function closeModal(){ overlay.classList.remove('open'); currentDeal = null; isNewMode = false; }
 
+document.getElementById('btnNew').addEventListener('click', openNewModal);
 document.getElementById('btnCancel').addEventListener('click', closeModal);
 overlay.addEventListener('click', e => { if(e.target === overlay) closeModal(); });
 
 document.getElementById('btnSave').addEventListener('click', async () => {
-  const id = document.getElementById('f-id').value;
-
-  const coreData = { id, branch: currentDeal.branch, rowNum: currentDeal.rowNum, dealNo: currentDeal.dealNo };
-  coreFields.forEach(f => {
-    if(f === 'dealNo') return; // 変更不可
-    coreData[f] = document.getElementById('c-' + f).value;
-  });
-
-  const extraData = { id };
-  editFields.forEach(f => { extraData[f] = document.getElementById('f-' + f).value; });
-
   const btn = document.getElementById('btnSave');
   btn.disabled = true; btn.textContent = '保存中…';
+
   try{
+    if(isNewMode){
+      const branch = document.getElementById('c-branch').value;
+      if(!branch){ alert('拠点を選択してください'); return; }
+      const createData = { branch };
+      coreFields.forEach(f => { createData[f] = document.getElementById('c-' + f).value; });
+
+      const createRes = await gasPost('deal_core_create', createData);
+      if(createRes.status !== 'success'){ alert('作成に失敗しました：' + createRes.data); return; }
+
+      const newId = createRes.data.id;
+      const extraData = { id: newId };
+      editFields.forEach(f => { extraData[f] = document.getElementById('f-' + f).value; });
+      const hasExtra = editFields.some(f => extraData[f]);
+      if(hasExtra){
+        const extraRes = await gasPost('deal_extra_upsert', extraData);
+        if(extraRes.status !== 'success'){ alert('追加情報の保存に失敗しました：' + extraRes.data); }
+      }
+      await loadDeals();
+      closeModal();
+      return;
+    }
+
+    const id = document.getElementById('f-id').value;
+    const coreData = { id, branch: currentDeal.branch, rowNum: currentDeal.rowNum, dealNo: currentDeal.dealNo };
+    coreFields.forEach(f => {
+      if(f === 'dealNo') return; // 変更不可
+      coreData[f] = document.getElementById('c-' + f).value;
+    });
+
+    const extraData = { id };
+    editFields.forEach(f => { extraData[f] = document.getElementById('f-' + f).value; });
+
     const [coreRes, extraRes] = await Promise.all([
       gasPost('deal_core_update', coreData),
       gasPost('deal_extra_upsert', extraData)
@@ -689,6 +745,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
     btn.disabled = false; btn.textContent = '保存';
   }
 });
+
 
 // ==== 初期ロード＋自動更新 ====
 let isFirstLoad = true;

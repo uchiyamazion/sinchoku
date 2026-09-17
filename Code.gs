@@ -84,6 +84,7 @@ function doPost(e) {
     switch (action) {
       case 'deal_extra_upsert': return dealExtraUpsert(payload.data || payload);
       case 'deal_core_update':  return dealCoreUpdate(payload.data || payload);
+      case 'deal_core_create':  return dealCoreCreate(payload.data || payload);
       default:                  return makeErr('不明なaction: ' + action);
     }
   } catch (err) {
@@ -221,6 +222,46 @@ const EDITABLE_CORE_FIELDS = [
   'assignee', 'quoteAmount', 'plannedProfit', 'rank', 'expectedOrderMonth',
   'currentStatus', 'pendingIssue', 'confirmedAmount', 'profit', 'profitRate'
 ];
+
+function dealCoreCreate(data) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    if (!data.branch || SOURCE_SHEETS.indexOf(data.branch) < 0) {
+      return makeErr('拠点(branch)が不正です: ' + data.branch);
+    }
+    const sh = sheet(data.branch);
+    if (!sh) return makeErr('シートが見つかりません: ' + data.branch);
+
+    const lastRow = Math.max(sh.getLastRow(), HEADER_ROW);
+    const newRow = lastRow + 1;
+
+    // No列（連番）は既存の最大値+1を採番
+    let maxNo = 0;
+    if (lastRow >= DATA_START_ROW) {
+      const noVals = sh.getRange(DATA_START_ROW, COL.no, lastRow - DATA_START_ROW + 1, 1).getValues();
+      noVals.forEach(r => { const n = Number(r[0]); if (!isNaN(n)) maxNo = Math.max(maxNo, n); });
+    }
+
+    // 案件Noは指定があればそれを使用、無ければアプリ発行のIDを自動採番（実運用の採番と衝突しないようA接頭辞）
+    const dealNo = (data.dealNo && String(data.dealNo).trim()) ? String(data.dealNo).trim() : ('A' + Date.now());
+
+    sh.getRange(newRow, COL.no).setValue(maxNo + 1);
+    sh.getRange(newRow, COL.dealNo).setValue(dealNo);
+
+    EDITABLE_CORE_FIELDS.forEach(f => {
+      if (data[f] === undefined || data[f] === '') return;
+      sh.getRange(newRow, COL[f]).setValue(data[f]);
+    });
+
+    const id = data.branch + '::' + dealNo;
+    return makeRes({ id: id, branch: data.branch, rowNum: newRow, dealNo: dealNo });
+  } catch (err) {
+    return makeErr('dealCoreCreate error: ' + err.toString());
+  } finally {
+    lock.releaseLock();
+  }
+}
 
 function dealCoreUpdate(data) {
   const lock = LockService.getScriptLock();
