@@ -55,12 +55,12 @@
     font-family:inherit; font-size:13px; padding:8px 10px;
     border:1px solid var(--line); border-radius:6px; background:#FBFCFD; color:var(--ink);
   }
-  #searchBox{
+  #searchBox, #excludeBox{
     font-family:inherit; font-size:13px; padding:8px 12px;
     border:1px solid var(--line); border-radius:6px; background:#FBFCFD; color:var(--ink);
     width:220px;
   }
-  #searchBox:focus{ outline:none; border-color:var(--navy); }
+  #searchBox:focus, #excludeBox:focus{ outline:none; border-color:var(--navy); }
   .amt-range{ display:flex; align-items:center; gap:4px; font-size:12px; color:var(--ink-soft); }
   .amt-range input{
     width:90px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; padding:7px 8px;
@@ -258,6 +258,7 @@
   </div>
   <div class="header-right">
     <input type="text" id="searchBox" placeholder="🔍 現場名・依頼業者・案件名などで検索">
+    <input type="text" id="excludeBox" placeholder="🚫 除外キーワード（例：パナソニックHVAC）">
     <select id="branchFilter">
       <option value="">すべての拠点</option>
     </select>
@@ -446,6 +447,7 @@ let branchFilterVal = '';
 let assigneeFilterVal = '';
 let rankFilterVal = '';
 let searchVal = '';
+let excludeVal = '';
 let sourceFilterVal = '';
 let orderMonthFilterVal = '';
 let minAmountVal = '';
@@ -573,8 +575,10 @@ function amountOf(d){
 
 function visibleDeals(){
   const kw = searchVal.trim().toLowerCase();
+  const exKw = excludeVal.trim().toLowerCase();
   const min = minAmountVal !== '' ? Number(minAmountVal) : null;
   const max = maxAmountVal !== '' ? Number(maxAmountVal) : null;
+  const matchFields = d => [d.siteName, d.customerName, d.projectName, d.summary, d.assignee, d.source, d.dealNo];
   return deals.filter(d =>
     (!branchFilterVal || d.branch === branchFilterVal) &&
     (!assigneeFilterVal || d.assignee === assigneeFilterVal) &&
@@ -583,8 +587,8 @@ function visibleDeals(){
     (!orderMonthFilterVal || d.expectedOrderMonth === orderMonthFilterVal) &&
     (min === null || amountOf(d) >= min) &&
     (max === null || amountOf(d) <= max) &&
-    (!kw || [d.siteName, d.customerName, d.projectName, d.summary, d.assignee, d.source, d.dealNo]
-      .some(v => String(v||'').toLowerCase().includes(kw)))
+    (!kw || matchFields(d).some(v => String(v||'').toLowerCase().includes(kw))) &&
+    (!exKw || !matchFields(d).some(v => String(v||'').toLowerCase().includes(exKw)))
   );
 }
 
@@ -771,6 +775,11 @@ let searchDebounce;
 document.getElementById('searchBox').addEventListener('input', e => {
   clearTimeout(searchDebounce);
   searchDebounce = setTimeout(() => { searchVal = e.target.value; render(); }, 150);
+});
+let excludeDebounce;
+document.getElementById('excludeBox').addEventListener('input', e => {
+  clearTimeout(excludeDebounce);
+  excludeDebounce = setTimeout(() => { excludeVal = e.target.value; render(); }, 150);
 });
 document.getElementById('sortSelect').addEventListener('change', e => { sortSelectVal = e.target.value; render(); });
 
