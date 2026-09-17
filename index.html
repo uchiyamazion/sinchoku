@@ -414,10 +414,13 @@ function elapsedBadge(deal){
 // 優先順位：手動ステータス ＞ ランクS(自動で受注) ＞ 見積提出日あり(自動で見積提出済) ＞ 未設定
 // 優先順位：手動ステータス ＞ 確定金額あり(自動で完了) ＞ ランクS(自動で受注)
 //          ＞ 見積金額 or 見積提出日あり(自動で見積提出済) ＞ 未設定
+// 優先順位：手動ステータス ＞ 確定金額あり(完了) ＞ ランクS(受注) ＞ ランクE(失注)
+//          ＞ 見積金額 or 見積提出日あり(見積提出済) ＞ 未設定
 function effStatus(d){
   if(d.status) return d.status;
   if(d.confirmedAmount !== '' && d.confirmedAmount != null) return '完了';
   if(d.rank === 'S') return '受注';
+  if(d.rank === 'E') return '失注';
   if(d.quoteDate || (d.quoteAmount !== '' && d.quoteAmount != null)) return '見積中';
   return '';
 }
