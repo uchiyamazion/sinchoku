@@ -55,6 +55,12 @@
     font-family:inherit; font-size:13px; padding:8px 10px;
     border:1px solid var(--line); border-radius:6px; background:#FBFCFD; color:var(--ink);
   }
+  #searchBox{
+    font-family:inherit; font-size:13px; padding:8px 12px;
+    border:1px solid var(--line); border-radius:6px; background:#FBFCFD; color:var(--ink);
+    width:220px;
+  }
+  #searchBox:focus{ outline:none; border-color:var(--navy); }
   .btn{
     border:none; cursor:pointer; font-family:inherit; font-weight:600;
     border-radius:6px; padding:9px 14px; font-size:13px;
@@ -228,6 +234,7 @@
     <div class="sub">既存の営業案件シートを読み込み・拠点横断で表示 ／ <span id="lastUpdated">未取得</span></div>
   </div>
   <div class="header-right">
+    <input type="text" id="searchBox" placeholder="🔍 現場名・依頼業者・案件名などで検索">
     <select id="branchFilter">
       <option value="">すべての拠点</option>
     </select>
@@ -401,6 +408,7 @@ let showLost = false;
 let branchFilterVal = '';
 let assigneeFilterVal = '';
 let rankFilterVal = '';
+let searchVal = '';
 let sortSelectVal = 'date';
 
 function gasGet(action, params={}){
@@ -516,10 +524,13 @@ function findConflicts(){
 }
 
 function visibleDeals(){
+  const kw = searchVal.trim().toLowerCase();
   return deals.filter(d =>
     (!branchFilterVal || d.branch === branchFilterVal) &&
     (!assigneeFilterVal || d.assignee === assigneeFilterVal) &&
-    (!rankFilterVal || d.rank === rankFilterVal)
+    (!rankFilterVal || d.rank === rankFilterVal) &&
+    (!kw || [d.siteName, d.customerName, d.projectName, d.summary, d.assignee, d.source, d.dealNo]
+      .some(v => String(v||'').toLowerCase().includes(kw)))
   );
 }
 
@@ -676,6 +687,11 @@ function renderCard(d, hasConflict){
 document.getElementById('branchFilter').addEventListener('change', e => { branchFilterVal = e.target.value; render(); });
 document.getElementById('assigneeFilter').addEventListener('change', e => { assigneeFilterVal = e.target.value; render(); });
 document.getElementById('rankFilter').addEventListener('change', e => { rankFilterVal = e.target.value; render(); });
+let searchDebounce;
+document.getElementById('searchBox').addEventListener('input', e => {
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(() => { searchVal = e.target.value; render(); }, 150);
+});
 document.getElementById('sortSelect').addEventListener('change', e => { sortSelectVal = e.target.value; render(); });
 
 // ==== ドラッグ&ドロップでステータス変更 ====
