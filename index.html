@@ -61,6 +61,17 @@
     width:220px;
   }
   #searchBox:focus{ outline:none; border-color:var(--navy); }
+  .amt-range{ display:flex; align-items:center; gap:4px; font-size:12px; color:var(--ink-soft); }
+  .amt-range input{
+    width:90px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; padding:7px 8px;
+    border:1px solid var(--line); border-radius:6px; background:#FBFCFD; color:var(--ink);
+  }
+  .amt-range input:focus{ outline:none; border-color:var(--navy); }
+  .checkbox-label{
+    display:flex; align-items:center; gap:5px; font-size:12.5px; color:var(--ink-soft); cursor:pointer;
+    white-space:nowrap;
+  }
+  .checkbox-label input{ cursor:pointer; }
   .btn{
     border:none; cursor:pointer; font-family:inherit; font-weight:600;
     border-radius:6px; padding:9px 14px; font-size:13px;
@@ -249,6 +260,20 @@
       <option value="C">C</option>
       <option value="E">E</option>
     </select>
+    <select id="sourceFilter">
+      <option value="">すべての源泉</option>
+    </select>
+    <select id="orderMonthFilter">
+      <option value="">すべての受注予定月</option>
+    </select>
+    <span class="amt-range">
+      <input type="number" id="minAmount" placeholder="金額下限">
+      〜
+      <input type="number" id="maxAmount" placeholder="金額上限">
+    </span>
+    <label class="checkbox-label">
+      <input type="checkbox" id="conflictOnlyCheck"> 工事日重複のみ
+    </label>
     <select id="sortSelect">
       <option value="date">日付順（工事日→見積提出日→発生日）</option>
       <option value="occurredDateDesc">発生日が新しい順</option>
@@ -409,6 +434,11 @@ let branchFilterVal = '';
 let assigneeFilterVal = '';
 let rankFilterVal = '';
 let searchVal = '';
+let sourceFilterVal = '';
+let orderMonthFilterVal = '';
+let minAmountVal = '';
+let maxAmountVal = '';
+let conflictOnlyVal = false;
 let sortSelectVal = 'date';
 
 function gasGet(action, params={}){
@@ -523,12 +553,24 @@ function findConflicts(){
   return { conflictIds, pairs };
 }
 
+function amountOf(d){
+  const v = d.confirmedAmount !== '' && d.confirmedAmount != null ? d.confirmedAmount : d.quoteAmount;
+  const n = Number(v);
+  return isNaN(n) ? 0 : n;
+}
+
 function visibleDeals(){
   const kw = searchVal.trim().toLowerCase();
+  const min = minAmountVal !== '' ? Number(minAmountVal) : null;
+  const max = maxAmountVal !== '' ? Number(maxAmountVal) : null;
   return deals.filter(d =>
     (!branchFilterVal || d.branch === branchFilterVal) &&
     (!assigneeFilterVal || d.assignee === assigneeFilterVal) &&
     (!rankFilterVal || d.rank === rankFilterVal) &&
+    (!sourceFilterVal || d.source === sourceFilterVal) &&
+    (!orderMonthFilterVal || d.expectedOrderMonth === orderMonthFilterVal) &&
+    (min === null || amountOf(d) >= min) &&
+    (max === null || amountOf(d) <= max) &&
     (!kw || [d.siteName, d.customerName, d.projectName, d.summary, d.assignee, d.source, d.dealNo]
       .some(v => String(v||'').toLowerCase().includes(kw)))
   );
@@ -537,18 +579,25 @@ function visibleDeals(){
 function populateFilters(){
   const branchSel = document.getElementById('branchFilter');
   const assigneeSel = document.getElementById('assigneeFilter');
+  const sourceSel = document.getElementById('sourceFilter');
+  const orderMonthSel = document.getElementById('orderMonthFilter');
   const branches = [...new Set(deals.map(d => d.branch))].sort();
   const assignees = [...new Set(deals.map(d => d.assignee).filter(Boolean))].sort();
+  const sources = [...new Set(deals.map(d => d.source).filter(Boolean))].sort();
+  const orderMonths = [...new Set(deals.map(d => d.expectedOrderMonth).filter(Boolean))].sort();
 
-  const curBranch = branchSel.value, curAssignee = assigneeSel.value;
+  const curBranch = branchSel.value, curAssignee = assigneeSel.value, curSource = sourceSel.value, curOrderMonth = orderMonthSel.value;
   branchSel.innerHTML = '<option value="">すべての拠点</option>' + branches.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
   assigneeSel.innerHTML = '<option value="">すべての担当者</option>' + assignees.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('');
-  branchSel.value = curBranch; assigneeSel.value = curAssignee;
+  sourceSel.innerHTML = '<option value="">すべての源泉</option>' + sources.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+  orderMonthSel.innerHTML = '<option value="">すべての受注予定月</option>' + orderMonths.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+  branchSel.value = curBranch; assigneeSel.value = curAssignee; sourceSel.value = curSource; orderMonthSel.value = curOrderMonth;
 }
 
 function render(){
-  const visible = visibleDeals();
+  let visible = visibleDeals();
   const { conflictIds, pairs } = findConflicts();
+  if(conflictOnlyVal) visible = visible.filter(d => conflictIds.has(d.id));
 
   const banner = document.getElementById('conflictBanner');
   if(pairs.length){
@@ -559,11 +608,6 @@ function render(){
   }
 
   const RANK_ORDER = { 'S':0, 'A':1, 'B':2, 'C':3, 'E':4 };
-  function amountOf(d){
-    const v = d.confirmedAmount !== '' && d.confirmedAmount != null ? d.confirmedAmount : d.quoteAmount;
-    const n = Number(v);
-    return isNaN(n) ? 0 : n;
-  }
   function sortDeals(list){
     const sorted = list.slice();
     const byText = (f) => (a,b) => String(a[f]||'').localeCompare(String(b[f]||''), 'ja');
@@ -573,6 +617,7 @@ function render(){
       return desc ? bv - av : av - bv;
     };
     switch(sortSelectVal){
+
       case 'amountDesc':
         sorted.sort((a,b) => amountOf(b) - amountOf(a)); break;
       case 'amountAsc':
@@ -687,6 +732,20 @@ function renderCard(d, hasConflict){
 document.getElementById('branchFilter').addEventListener('change', e => { branchFilterVal = e.target.value; render(); });
 document.getElementById('assigneeFilter').addEventListener('change', e => { assigneeFilterVal = e.target.value; render(); });
 document.getElementById('rankFilter').addEventListener('change', e => { rankFilterVal = e.target.value; render(); });
+document.getElementById('sourceFilter').addEventListener('change', e => { sourceFilterVal = e.target.value; render(); });
+document.getElementById('orderMonthFilter').addEventListener('change', e => { orderMonthFilterVal = e.target.value; render(); });
+document.getElementById('conflictOnlyCheck').addEventListener('change', e => { conflictOnlyVal = e.target.checked; render(); });
+let amountDebounce;
+function onAmountInput(){
+  clearTimeout(amountDebounce);
+  amountDebounce = setTimeout(() => {
+    minAmountVal = document.getElementById('minAmount').value;
+    maxAmountVal = document.getElementById('maxAmount').value;
+    render();
+  }, 200);
+}
+document.getElementById('minAmount').addEventListener('input', onAmountInput);
+document.getElementById('maxAmount').addEventListener('input', onAmountInput);
 let searchDebounce;
 document.getElementById('searchBox').addEventListener('input', e => {
   clearTimeout(searchDebounce);
