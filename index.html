@@ -145,6 +145,18 @@
   .badge.b-grey{ background:var(--grey-soft); color:var(--ink-soft); }
   .amt{ font-family:'IBM Plex Mono',monospace; font-weight:600; color:var(--ink); font-size:12px; }
   .conflict-flag{ color:var(--red); font-weight:700; font-size:10.5px; margin-top:6px; display:flex; align-items:center; gap:4px; }
+  .updated-at{ color:var(--grey); font-size:9.5px; margin-top:5px; }
+  .updated-flag{
+    color:var(--amber); font-weight:700; font-size:10.5px; margin-bottom:4px;
+  }
+  .card.just-updated{
+    animation: updatedPulse 3s ease-out;
+    border-color: var(--amber);
+  }
+  @keyframes updatedPulse{
+    0%{ background: var(--amber-soft); }
+    100%{ background: var(--paper); }
+  }
 
   #lostToggleWrap{ padding:12px 28px 0; }
   #lostToggleWrap button{ background:none; border:none; color:var(--ink-soft); font-size:12px; cursor:pointer; text-decoration:underline; font-family:inherit; padding:0; }
@@ -665,7 +677,7 @@ function render(){
     document.getElementById(`amt-${key}`).textContent = colTotal ? fmtYen(colTotal) : '';
     const body = document.getElementById(`col-${key}`);
     body.innerHTML = '';
-    list.forEach(d => body.appendChild(renderCard(d, conflictIds.has(d.id))));
+    list.forEach(d => body.appendChild(renderCard(d, conflictIds.has(d.id), justUpdatedIds.has(d.id))));
   });
 
   // 全体サマリー（現在の絞り込み条件・失注表示設定を反映）
@@ -684,9 +696,16 @@ function render(){
   document.getElementById('lostCol').style.display = showLost ? 'flex' : 'none';
 }
 
-function renderCard(d, hasConflict){
+function fmtDateTime(d){
+  if(!d) return '';
+  const dt = new Date(d);
+  if(isNaN(dt.getTime())) return '';
+  return `${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+}
+
+function renderCard(d, hasConflict, justUpdated){
   const el = document.createElement('div');
-  el.className = 'card';
+  el.className = 'card' + (justUpdated ? ' just-updated' : '');
   el.draggable = true;
   el.dataset.id = d.id;
 
@@ -703,6 +722,7 @@ function renderCard(d, hasConflict){
     ? `<span class="badge b-grey mono">見積時 ${fmtYen(d.quoteAmount)}</span>` : '';
 
   el.innerHTML = `
+    ${justUpdated ? `<div class="updated-flag">✨ 更新されました</div>` : ''}
     <span class="branch-tag">${escapeHtml(d.branch)}</span>
     <div class="cname">${escapeHtml(d.siteName || d.projectName || '(現場未設定)')}</div>
     <div class="pname">${escapeHtml(d.customerName||'')}${d.projectName && d.siteName ? '　' + escapeHtml(d.projectName) : ''}</div>
@@ -719,6 +739,7 @@ function renderCard(d, hasConflict){
       ${d.assignee ? `<span>${escapeHtml(d.assignee)}</span>` : ''}
     </div>
     ${d.currentStatus ? `<div class="legacy-status">${escapeHtml(d.currentStatus)}</div>` : ''}
+    ${d.updatedAt ? `<div class="updated-at mono">更新 ${fmtDateTime(d.updatedAt)}</div>` : ''}
     ${hasConflict ? `<div class="conflict-flag">⚠ 工事日が他案件と重複</div>` : ''}
   `;
 
@@ -874,11 +895,8 @@ document.getElementById('btnSave').addEventListener('click', async () => {
       const newId = createRes.data.id;
       const extraData = { id: newId };
       editFields.forEach(f => { extraData[f] = document.getElementById('f-' + f).value; });
-      const hasExtra = editFields.some(f => extraData[f]);
-      if(hasExtra){
-        const extraRes = await gasPost('deal_extra_upsert', extraData);
-        if(extraRes.status !== 'success'){ alert('追加情報の保存に失敗しました：' + extraRes.data); }
-      }
+      const extraRes = await gasPost('deal_extra_upsert', extraData);
+      if(extraRes.status !== 'success'){ alert('追加情報の保存に失敗しました：' + extraRes.data); }
       await loadDeals();
       closeModal();
       return;
@@ -918,8 +936,16 @@ document.getElementById('btnSave').addEventListener('click', async () => {
 
 // ==== 初期ロード＋自動更新 ====
 let isFirstLoad = true;
+let prevDealsMap = {};
+let justUpdatedIds = new Set();
 const loadingOverlay = document.getElementById('loadingOverlay');
 const loadingText = document.getElementById('loadingText');
+
+// elapsedDaysは日をまたぐだけで変わるので比較対象から除外する
+function snapshotKey(d){
+  const { elapsedDays, ...rest } = d;
+  return JSON.stringify(rest);
+}
 
 async function loadDeals(){
   const showOverlay = isFirstLoad;
@@ -939,12 +965,30 @@ async function loadDeals(){
   const res = await gasGetWithProgress('deal_list', onProgress);
 
   if(res.status === 'success'){
+    // 初回以降は、前回取得内容と比べて変化があったカードを検知してハイライトする
+    if(!isFirstLoad && Object.keys(prevDealsMap).length){
+      justUpdatedIds = new Set();
+      res.data.forEach(d => {
+        const prev = prevDealsMap[d.id];
+        if(prev !== undefined && prev !== snapshotKey(d)) justUpdatedIds.add(d.id);
+      });
+    } else {
+      justUpdatedIds = new Set();
+    }
+    prevDealsMap = {};
+    res.data.forEach(d => { prevDealsMap[d.id] = snapshotKey(d); });
+
     deals = res.data;
     populateFilters();
     render();
     const now = new Date();
     document.getElementById('lastUpdated').textContent =
       '最終更新 ' + String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0') + ':' + String(now.getSeconds()).padStart(2,'0');
+
+    // ハイライトは一定時間で自動的に消す（次回描画時に残らないように）
+    if(justUpdatedIds.size){
+      setTimeout(() => { justUpdatedIds = new Set(); render(); }, 4000);
+    }
   } else {
     console.error(res.data);
     if(showOverlay) loadingText.textContent = '読み込みに失敗しました：' + res.data;

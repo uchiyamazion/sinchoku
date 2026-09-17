@@ -193,6 +193,7 @@ function dealList() {
       purchaseDate: extra.purchaseDate || '',
       purchaseAmount: extra.purchaseAmount || '',
       billingMonth: extra.billingMonth || '',
+      updatedAt: extra.updatedAt || '',
       elapsedDays: calcElapsedDays_(baseDate, status)
     });
   });
