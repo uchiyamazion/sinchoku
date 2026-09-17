@@ -236,12 +236,22 @@
     </select>
     <select id="sortSelect">
       <option value="date">日付順（工事日→見積提出日→発生日）</option>
+      <option value="occurredDateDesc">発生日が新しい順</option>
+      <option value="occurredDateAsc">発生日が古い順</option>
       <option value="amountDesc">金額が大きい順</option>
       <option value="amountAsc">金額が小さい順</option>
       <option value="elapsedDesc">経過日数が長い順</option>
+      <option value="elapsedAsc">経過日数が短い順</option>
       <option value="rank">ランク順（S→A→B→C→E）</option>
+      <option value="profitRateDesc">粗利率が高い順</option>
       <option value="assignee">担当者順</option>
+      <option value="source">源泉（紹介元）順</option>
       <option value="customerName">顧客名順</option>
+      <option value="siteName">現場名順</option>
+      <option value="projectName">案件名順</option>
+      <option value="branch">拠点順</option>
+      <option value="expectedOrderMonth">受注予定月順</option>
+      <option value="dealNo">案件No順</option>
     </select>
     <button class="btn btn-primary" id="btnNew">＋ 新規案件</button>
   </div>
@@ -535,6 +545,12 @@ function render(){
   }
   function sortDeals(list){
     const sorted = list.slice();
+    const byText = (f) => (a,b) => String(a[f]||'').localeCompare(String(b[f]||''), 'ja');
+    const byDate = (f, desc) => (a,b) => {
+      const av = a[f] ? new Date(a[f]).getTime() : (desc ? -Infinity : Infinity);
+      const bv = b[f] ? new Date(b[f]).getTime() : (desc ? -Infinity : Infinity);
+      return desc ? bv - av : av - bv;
+    };
     switch(sortSelectVal){
       case 'amountDesc':
         sorted.sort((a,b) => amountOf(b) - amountOf(a)); break;
@@ -542,12 +558,32 @@ function render(){
         sorted.sort((a,b) => amountOf(a) - amountOf(b)); break;
       case 'elapsedDesc':
         sorted.sort((a,b) => (b.elapsedDays ?? -1) - (a.elapsedDays ?? -1)); break;
+      case 'elapsedAsc':
+        sorted.sort((a,b) => (a.elapsedDays ?? 999999) - (b.elapsedDays ?? 999999)); break;
       case 'rank':
         sorted.sort((a,b) => (RANK_ORDER[a.rank] ?? 99) - (RANK_ORDER[b.rank] ?? 99)); break;
+      case 'profitRateDesc':
+        sorted.sort((a,b) => (parseFloat(b.profitRate) || -Infinity) - (parseFloat(a.profitRate) || -Infinity)); break;
       case 'assignee':
-        sorted.sort((a,b) => String(a.assignee||'').localeCompare(String(b.assignee||''), 'ja')); break;
+        sorted.sort(byText('assignee')); break;
+      case 'source':
+        sorted.sort(byText('source')); break;
       case 'customerName':
-        sorted.sort((a,b) => String(a.customerName||'').localeCompare(String(b.customerName||''), 'ja')); break;
+        sorted.sort(byText('customerName')); break;
+      case 'siteName':
+        sorted.sort(byText('siteName')); break;
+      case 'projectName':
+        sorted.sort(byText('projectName')); break;
+      case 'branch':
+        sorted.sort(byText('branch')); break;
+      case 'expectedOrderMonth':
+        sorted.sort(byText('expectedOrderMonth')); break;
+      case 'dealNo':
+        sorted.sort(byText('dealNo')); break;
+      case 'occurredDateDesc':
+        sorted.sort(byDate('occurredDate', true)); break;
+      case 'occurredDateAsc':
+        sorted.sort(byDate('occurredDate', false)); break;
       case 'date':
       default:
         sorted.sort((a,b) => (a.constructionStart||a.quoteDate||a.occurredDate||'').toString().localeCompare((b.constructionStart||b.quoteDate||b.occurredDate||'').toString()));
