@@ -243,18 +243,20 @@ function dealCoreCreate(data) {
       noVals.forEach(r => { const n = Number(r[0]); if (!isNaN(n)) maxNo = Math.max(maxNo, n); });
     }
 
-    // 案件Noは指定があればそれを使用、無ければアプリ発行のIDを自動採番（実運用の採番と衝突しないようA接頭辞）
-    const dealNo = (data.dealNo && String(data.dealNo).trim()) ? String(data.dealNo).trim() : ('A' + Date.now());
+    // 案件Noは指定があればそのまま使用。未入力なら空欄のまま作成する（自動採番はしない）
+    const dealNo = (data.dealNo && String(data.dealNo).trim()) ? String(data.dealNo).trim() : '';
 
     sh.getRange(newRow, COL.no).setValue(maxNo + 1);
-    sh.getRange(newRow, COL.dealNo).setValue(dealNo);
+    if (dealNo) sh.getRange(newRow, COL.dealNo).setValue(dealNo);
 
     EDITABLE_CORE_FIELDS.forEach(f => {
       if (data[f] === undefined || data[f] === '') return;
       sh.getRange(newRow, COL[f]).setValue(data[f]);
     });
 
-    const id = data.branch + '::' + dealNo;
+    // 案件Noが空の場合は、他の未入力行と同じ「拠点::r行番号」形式のidにする（一覧取得時と一致させる）
+    const id = dealNo ? (data.branch + '::' + dealNo) : (data.branch + '::r' + newRow);
+
     return makeRes({ id: id, branch: data.branch, rowNum: newRow, dealNo: dealNo });
   } catch (err) {
     return makeErr('dealCoreCreate error: ' + err.toString());
