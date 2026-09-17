@@ -234,6 +234,14 @@
     <select id="assigneeFilter">
       <option value="">すべての担当者</option>
     </select>
+    <select id="rankFilter">
+      <option value="">すべてのランク</option>
+      <option value="S">S</option>
+      <option value="A">A</option>
+      <option value="B">B</option>
+      <option value="C">C</option>
+      <option value="E">E</option>
+    </select>
     <select id="sortSelect">
       <option value="date">日付順（工事日→見積提出日→発生日）</option>
       <option value="occurredDateDesc">発生日が新しい順</option>
@@ -392,6 +400,7 @@ let deals = [];
 let showLost = false;
 let branchFilterVal = '';
 let assigneeFilterVal = '';
+let rankFilterVal = '';
 let sortSelectVal = 'date';
 
 function gasGet(action, params={}){
@@ -509,7 +518,8 @@ function findConflicts(){
 function visibleDeals(){
   return deals.filter(d =>
     (!branchFilterVal || d.branch === branchFilterVal) &&
-    (!assigneeFilterVal || d.assignee === assigneeFilterVal)
+    (!assigneeFilterVal || d.assignee === assigneeFilterVal) &&
+    (!rankFilterVal || d.rank === rankFilterVal)
   );
 }
 
@@ -665,6 +675,7 @@ function renderCard(d, hasConflict){
 // ==== フィルタ・ソート ====
 document.getElementById('branchFilter').addEventListener('change', e => { branchFilterVal = e.target.value; render(); });
 document.getElementById('assigneeFilter').addEventListener('change', e => { assigneeFilterVal = e.target.value; render(); });
+document.getElementById('rankFilter').addEventListener('change', e => { rankFilterVal = e.target.value; render(); });
 document.getElementById('sortSelect').addEventListener('change', e => { sortSelectVal = e.target.value; render(); });
 
 // ==== ドラッグ&ドロップでステータス変更 ====
