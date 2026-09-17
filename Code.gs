@@ -272,18 +272,19 @@ function dealCoreUpdate(data) {
     if (!sh) return makeErr('シートが見つかりません: ' + data.branch);
 
     let rowNum = Number(data.rowNum);
+    const origDealNo = data.origDealNo !== undefined ? data.origDealNo : data.dealNo;
 
-    // 他の人が行を追加・削除して行がズレていないか、案件Noで突合確認
-    if (data.dealNo) {
+    // 他の人が行を追加・削除して行がズレていないか、元の案件Noで突合確認
+    if (origDealNo) {
       const curDealNo = sh.getRange(rowNum, COL.dealNo).getValue();
-      if (String(curDealNo) !== String(data.dealNo)) {
+      if (String(curDealNo) !== String(origDealNo)) {
         const lastRow = sh.getLastRow();
         let found = -1;
         for (let r = DATA_START_ROW; r <= lastRow; r++) {
-          if (String(sh.getRange(r, COL.dealNo).getValue()) === String(data.dealNo)) { found = r; break; }
+          if (String(sh.getRange(r, COL.dealNo).getValue()) === String(origDealNo)) { found = r; break; }
         }
         if (found < 0) {
-          return makeErr('対象の行が見つかりませんでした（案件No: ' + data.dealNo + '）。ページを再読み込みしてから、もう一度お試しください。');
+          return makeErr('対象の行が見つかりませんでした（案件No: ' + origDealNo + '）。ページを再読み込みしてから、もう一度お試しください。');
         }
         rowNum = found;
       }
@@ -296,12 +297,37 @@ function dealCoreUpdate(data) {
       sh.getRange(rowNum, colIdx).setValue(data[f]);
     });
 
-    return makeRes({ id: data.id, rowNum: rowNum });
+    // 案件No自体が変更された場合は、その列も更新し、追加情報シート側の紐付けIDも付け替える
+    let newDealNo = origDealNo;
+    if (data.dealNo !== undefined && String(data.dealNo) !== String(origDealNo)) {
+      newDealNo = data.dealNo;
+      sh.getRange(rowNum, COL.dealNo).setValue(newDealNo);
+      if (origDealNo) {
+        renameExtraId_(data.branch + '::' + origDealNo, data.branch + '::' + newDealNo);
+      }
+    }
+
+    return makeRes({ id: data.branch + '::' + newDealNo, rowNum: rowNum, dealNo: newDealNo });
   } catch (err) {
     return makeErr('dealCoreUpdate error: ' + err.toString());
   } finally {
     lock.releaseLock();
   }
+}
+
+// 追加情報シートの行のidを付け替える（案件No変更時に使用）
+function renameExtraId_(oldId, newId) {
+  const sh = ensureExtraSheet_();
+  const vals = sh.getDataRange().getValues();
+  const headers = vals[0];
+  const idCol = headers.indexOf('id');
+  for (let i = 1; i < vals.length; i++) {
+    if (vals[i][idCol] == oldId) {
+      sh.getRange(i + 1, idCol + 1).setValue(newId);
+      return true;
+    }
+  }
+  return false;
 }
 
 function dealExtraUpsert(data) {

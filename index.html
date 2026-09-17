@@ -276,7 +276,7 @@
     <div class="section-label">基本情報（編集すると元のスプレッドシートに直接反映されます）</div>
     <div class="field-grid">
       <div class="field full"><label>現場名</label><input id="c-siteName"></div>
-      <div class="field"><label>案件No（変更不可）</label><input id="c-dealNo" disabled></div>
+      <div class="field"><label id="dealNoLabel">案件No</label><input id="c-dealNo"></div>
       <div class="field"><label>担当者</label><input id="c-assignee"></div>
       <div class="field"><label>顧客名</label><input id="c-customerName"></div>
       <div class="field full"><label>案件名</label><input id="c-projectName"></div>
@@ -652,6 +652,7 @@ function openNewModal(){
   const branchSel = document.getElementById('c-branch');
   branchSel.innerHTML = BRANCHES.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
   document.getElementById('newBranchField').style.display = 'block';
+  document.getElementById('dealNoLabel').textContent = '案件No（空欄なら自動採番）';
 
   document.getElementById('modalConflict').style.display = 'none';
   overlay.classList.add('open');
@@ -661,6 +662,7 @@ function openModal(deal){
   currentDeal = deal;
   isNewMode = false;
   document.getElementById('newBranchField').style.display = 'none';
+  document.getElementById('dealNoLabel').textContent = '案件No';
   document.getElementById('m-branch').textContent = deal.branch;
   document.getElementById('modalTitle').textContent = deal.projectName || deal.customerName || '案件詳細';
   document.getElementById('f-id').value = deal.id;
@@ -718,20 +720,22 @@ document.getElementById('btnSave').addEventListener('click', async () => {
     }
 
     const id = document.getElementById('f-id').value;
-    const coreData = { id, branch: currentDeal.branch, rowNum: currentDeal.rowNum, dealNo: currentDeal.dealNo };
-    coreFields.forEach(f => {
-      if(f === 'dealNo') return; // 変更不可
-      coreData[f] = document.getElementById('c-' + f).value;
-    });
+    const origDealNo = currentDeal.dealNo;
+    const newDealNo = document.getElementById('c-dealNo').value;
 
-    const extraData = { id };
+    const coreData = { id, branch: currentDeal.branch, rowNum: currentDeal.rowNum, origDealNo: origDealNo };
+    coreFields.forEach(f => { coreData[f] = document.getElementById('c-' + f).value; });
+
+    const coreRes = await gasPost('deal_core_update', coreData);
+    if(coreRes.status !== 'success'){ alert('基本情報の保存に失敗しました：' + coreRes.data); return; }
+
+    // 案件Noを変更した場合は、追加情報の紐付けIDも新しいものを使う（バックエンド側で付け替え済み）
+    const newId = (newDealNo !== origDealNo) ? (currentDeal.branch + '::' + newDealNo) : id;
+
+    const extraData = { id: newId };
     editFields.forEach(f => { extraData[f] = document.getElementById('f-' + f).value; });
 
-    const [coreRes, extraRes] = await Promise.all([
-      gasPost('deal_core_update', coreData),
-      gasPost('deal_extra_upsert', extraData)
-    ]);
-    if(coreRes.status !== 'success'){ alert('基本情報の保存に失敗しました：' + coreRes.data); return; }
+    const extraRes = await gasPost('deal_extra_upsert', extraData);
     if(extraRes.status !== 'success'){ alert('追加情報の保存に失敗しました：' + extraRes.data); return; }
     if(extraRes.data.conflicts && extraRes.data.conflicts.length){
       document.getElementById('modalConflict').style.display = 'block';
