@@ -42,36 +42,66 @@
 
   header{
     display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;
-    padding:18px 28px;
+    padding:14px 20px;
     border-bottom: 1px solid var(--line);
     background: rgba(255,255,255,0.75);
     backdrop-filter: blur(4px);
     position: sticky; top:0; z-index: 20;
   }
-  header h1{ font-size: 19px; font-weight:700; margin:0; letter-spacing:.01em; }
-  header .sub{ font-size:12px; color:var(--ink-soft); margin-top:3px; }
-  .header-right{ display:flex; align-items:center; gap:10px; }
+  header h1{ font-size: 17px; font-weight:700; margin:0; letter-spacing:.01em; }
+  header .sub{ font-size:11.5px; color:var(--ink-soft); margin-top:2px; }
+  .header-right{ display:flex; align-items:center; gap:8px; }
   select{
-    font-family:inherit; font-size:13px; padding:8px 10px;
+    font-family:inherit; font-size:13px; padding:9px 10px;
+    border:1px solid var(--line); border-radius:6px; background:#FBFCFD; color:var(--ink);
+    min-height:38px;
+  }
+  #searchBox{
+    font-family:inherit; font-size:13px; padding:9px 12px;
+    border:1px solid var(--line); border-radius:6px; background:#FBFCFD; color:var(--ink);
+    width:170px; min-height:38px;
+  }
+  #searchBox:focus{ outline:none; border-color:var(--navy); }
+
+  .filter-count-badge{
+    display:inline-flex; align-items:center; justify-content:center;
+    background:var(--navy); color:#fff; font-size:10.5px; font-weight:700;
+    min-width:16px; height:16px; border-radius:8px; padding:0 4px; margin-left:2px;
+  }
+
+  .filter-panel{
+    display:none; padding:16px 20px; border-bottom:1px solid var(--line);
+    background: rgba(255,255,255,0.92);
+  }
+  .filter-panel.open{ display:block; }
+  .filter-grid{
+    display:grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap:12px 14px;
+  }
+  .filter-field{ display:flex; flex-direction:column; gap:5px; }
+  .filter-field label{ font-size:11px; color:var(--ink-soft); font-weight:600; }
+  .filter-field select, .filter-field input[type="text"], .filter-field input[type="number"]{ width:100%; }
+  .filter-field-checkbox{ justify-content:flex-end; }
+  #excludeBox{
+    font-family:inherit; font-size:13px; padding:9px 10px; min-height:38px;
     border:1px solid var(--line); border-radius:6px; background:#FBFCFD; color:var(--ink);
   }
-  #searchBox, #excludeBox{
-    font-family:inherit; font-size:13px; padding:8px 12px;
-    border:1px solid var(--line); border-radius:6px; background:#FBFCFD; color:var(--ink);
-    width:220px;
-  }
-  #searchBox:focus, #excludeBox:focus{ outline:none; border-color:var(--navy); }
-  .amt-range{ display:flex; align-items:center; gap:4px; font-size:12px; color:var(--ink-soft); }
+  #excludeBox:focus{ outline:none; border-color:var(--navy); }
+  .amt-range{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--ink-soft); }
   .amt-range input{
-    width:90px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; padding:7px 8px;
+    width:100%; min-width:0; font-family:'IBM Plex Mono',monospace; font-size:12.5px; padding:9px 8px; min-height:38px;
     border:1px solid var(--line); border-radius:6px; background:#FBFCFD; color:var(--ink);
   }
   .amt-range input:focus{ outline:none; border-color:var(--navy); }
   .checkbox-label{
-    display:flex; align-items:center; gap:5px; font-size:12.5px; color:var(--ink-soft); cursor:pointer;
-    white-space:nowrap;
+    display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-soft); cursor:pointer;
+    white-space:nowrap; padding:9px 0;
   }
-  .checkbox-label input{ cursor:pointer; }
+  .checkbox-label input{ cursor:pointer; width:16px; height:16px; }
+  .filter-panel-actions{
+    display:flex; justify-content:flex-end; gap:8px; margin-top:14px;
+    padding-top:12px; border-top:1px solid var(--line);
+  }
   .btn{
     border:none; cursor:pointer; font-family:inherit; font-weight:600;
     border-radius:6px; padding:9px 14px; font-size:13px;
@@ -189,8 +219,31 @@
   .modal-conflict{ margin-top:14px; background:var(--red-soft); border:1px solid var(--red); color:var(--red); border-radius:6px; padding:9px 11px; font-size:12px; font-weight:600; }
 
   @media (max-width: 700px){
-    header{ flex-direction:column; align-items:flex-start; }
+    body{ background-size: 20px 20px; }
+    header{ flex-direction:column; align-items:stretch; padding:12px 14px; gap:8px; }
+    header h1{ font-size:15.5px; }
+    .header-right{ width:100%; }
+    .header-right #searchBox{ flex:1; min-width:0; width:auto; }
+    .header-right .btn{ flex-shrink:0; padding:9px 12px; font-size:12.5px; }
+
+    .filter-panel{ padding:14px; }
+    .filter-grid{ grid-template-columns: 1fr; gap:10px; }
+    .filter-field-checkbox{ justify-content:flex-start; }
+    .filter-panel-actions{ flex-direction:column-reverse; }
+    .filter-panel-actions .btn{ width:100%; padding:12px; }
+
     .field-grid, .readonly-grid{ grid-template-columns:1fr; }
+
+    .board{ padding:14px 14px 30px; gap:12px; }
+    .col{ width:80vw; min-width:80vw; scroll-snap-align:start; max-height: calc(100vh - 210px); }
+    .board{ scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+
+    #summaryBar{ margin:12px 14px 0; padding:10px 12px; gap:12px; }
+    #summaryBar .s-val{ font-size:13px; }
+    #conflictBanner{ margin:12px 14px 0; font-size:12px; }
+
+    .modal{ padding:18px 16px 16px; max-width:100%; }
+    .login-box{ margin:0 16px; padding:28px 24px; }
   }
 
   #loadingOverlay{
@@ -254,62 +307,86 @@
 <header>
   <div>
     <h1>案件進捗ボード</h1>
-    <div class="sub">既存の営業案件シートを読み込み・拠点横断で表示 ／ <span id="lastUpdated">未取得</span></div>
+    <div class="sub"><span id="lastUpdated">未取得</span></div>
   </div>
   <div class="header-right">
-    <input type="text" id="searchBox" placeholder="🔍 現場名・依頼業者・案件名などで検索">
-    <input type="text" id="excludeBox" placeholder="🚫 除外キーワード（例：パナソニックHVAC）">
-    <select id="branchFilter">
-      <option value="">すべての拠点</option>
-    </select>
-    <select id="assigneeFilter">
-      <option value="">すべての担当者</option>
-    </select>
-    <select id="rankFilter">
-      <option value="">すべてのランク</option>
-      <option value="S">S</option>
-      <option value="A">A</option>
-      <option value="B">B</option>
-      <option value="C">C</option>
-      <option value="E">E</option>
-    </select>
-    <select id="sourceFilter">
-      <option value="">すべての源泉</option>
-    </select>
-    <select id="orderMonthFilter">
-      <option value="">すべての受注予定月</option>
-    </select>
-    <span class="amt-range">
-      <input type="number" id="minAmount" placeholder="金額下限">
-      〜
-      <input type="number" id="maxAmount" placeholder="金額上限">
-    </span>
-    <label class="checkbox-label">
-      <input type="checkbox" id="conflictOnlyCheck"> 工事日重複のみ
-    </label>
-    <select id="sortSelect">
-      <option value="date">日付順（工事日→見積提出日→発生日）</option>
-      <option value="occurredDateDesc">発生日が新しい順</option>
-      <option value="occurredDateAsc">発生日が古い順</option>
-      <option value="amountDesc">金額が大きい順</option>
-      <option value="amountAsc">金額が小さい順</option>
-      <option value="elapsedDesc">経過日数が長い順</option>
-      <option value="elapsedAsc">経過日数が短い順</option>
-      <option value="rank">ランク順（S→A→B→C→E）</option>
-      <option value="profitRateDesc">粗利率が高い順</option>
-      <option value="assignee">担当者順</option>
-      <option value="source">源泉（紹介元）順</option>
-      <option value="customerName">顧客名順</option>
-      <option value="siteName">現場名順</option>
-      <option value="projectName">案件名順</option>
-      <option value="branch">拠点順</option>
-      <option value="expectedOrderMonth">受注予定月順</option>
-      <option value="dealNo">案件No順</option>
-    </select>
-    <button class="btn btn-ghost" id="btnReset">リセット</button>
-    <button class="btn btn-primary" id="btnNew">＋ 新規案件</button>
+    <input type="text" id="searchBox" placeholder="🔍 検索">
+    <button class="btn btn-ghost" id="btnToggleFilters">絞り込み <span id="filterCount" class="filter-count-badge" style="display:none;"></span></button>
+    <button class="btn btn-primary" id="btnNew">＋ 新規</button>
   </div>
 </header>
+
+<div id="filterPanel" class="filter-panel">
+  <div class="filter-grid">
+    <div class="filter-field">
+      <label>拠点</label>
+      <select id="branchFilter"><option value="">すべての拠点</option></select>
+    </div>
+    <div class="filter-field">
+      <label>担当者</label>
+      <select id="assigneeFilter"><option value="">すべての担当者</option></select>
+    </div>
+    <div class="filter-field">
+      <label>ランク</label>
+      <select id="rankFilter">
+        <option value="">すべてのランク</option>
+        <option value="S">S</option><option value="A">A</option>
+        <option value="B">B</option><option value="C">C</option><option value="E">E</option>
+      </select>
+    </div>
+    <div class="filter-field">
+      <label>源泉</label>
+      <select id="sourceFilter"><option value="">すべての源泉</option></select>
+    </div>
+    <div class="filter-field">
+      <label>受注予定月</label>
+      <select id="orderMonthFilter"><option value="">すべての受注予定月</option></select>
+    </div>
+    <div class="filter-field">
+      <label>並び替え</label>
+      <select id="sortSelect">
+        <option value="date">日付順（工事日→見積提出日→発生日）</option>
+        <option value="occurredDateDesc">発生日が新しい順</option>
+        <option value="occurredDateAsc">発生日が古い順</option>
+        <option value="amountDesc">金額が大きい順</option>
+        <option value="amountAsc">金額が小さい順</option>
+        <option value="elapsedDesc">経過日数が長い順</option>
+        <option value="elapsedAsc">経過日数が短い順</option>
+        <option value="rank">ランク順（S→A→B→C→E）</option>
+        <option value="profitRateDesc">粗利率が高い順</option>
+        <option value="assignee">担当者順</option>
+        <option value="source">源泉（紹介元）順</option>
+        <option value="customerName">顧客名順</option>
+        <option value="siteName">現場名順</option>
+        <option value="projectName">案件名順</option>
+        <option value="branch">拠点順</option>
+        <option value="expectedOrderMonth">受注予定月順</option>
+        <option value="dealNo">案件No順</option>
+      </select>
+    </div>
+    <div class="filter-field">
+      <label>金額範囲（円）</label>
+      <span class="amt-range">
+        <input type="number" id="minAmount" placeholder="下限">
+        〜
+        <input type="number" id="maxAmount" placeholder="上限">
+      </span>
+    </div>
+    <div class="filter-field">
+      <label>除外キーワード</label>
+      <input type="text" id="excludeBox" placeholder="🚫 例：パナソニックHVAC">
+    </div>
+    <div class="filter-field filter-field-checkbox">
+      <label class="checkbox-label">
+        <input type="checkbox" id="conflictOnlyCheck"> 工事日重複のみ表示
+      </label>
+    </div>
+  </div>
+  <div class="filter-panel-actions">
+    <button class="btn btn-ghost" id="btnReset">条件をリセット</button>
+    <button class="btn btn-primary" id="btnCloseFilters">閉じる</button>
+  </div>
+</div>
 
 <div id="conflictBanner"></div>
 
@@ -611,7 +688,22 @@ function populateFilters(){
   branchSel.value = curBranch; assigneeSel.value = curAssignee; sourceSel.value = curSource; orderMonthSel.value = curOrderMonth;
 }
 
+function updateFilterCountBadge(){
+  const count = [
+    branchFilterVal, assigneeFilterVal, rankFilterVal, sourceFilterVal, orderMonthFilterVal,
+    minAmountVal, maxAmountVal, excludeVal, conflictOnlyVal ? 'x' : ''
+  ].filter(Boolean).length;
+  const badge = document.getElementById('filterCount');
+  if(count > 0){
+    badge.textContent = count;
+    badge.style.display = 'inline-flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
 function render(){
+  updateFilterCountBadge();
   let visible = visibleDeals();
   const { conflictIds, pairs } = findConflicts();
   if(conflictOnlyVal) visible = visible.filter(d => conflictIds.has(d.id));
@@ -885,6 +977,13 @@ function openModal(deal){
 function closeModal(){ overlay.classList.remove('open'); currentDeal = null; isNewMode = false; }
 
 document.getElementById('btnNew').addEventListener('click', openNewModal);
+
+document.getElementById('btnToggleFilters').addEventListener('click', () => {
+  document.getElementById('filterPanel').classList.toggle('open');
+});
+document.getElementById('btnCloseFilters').addEventListener('click', () => {
+  document.getElementById('filterPanel').classList.remove('open');
+});
 
 document.getElementById('btnReset').addEventListener('click', () => {
   branchFilterVal = ''; assigneeFilterVal = ''; rankFilterVal = ''; sourceFilterVal = '';
