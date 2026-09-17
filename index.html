@@ -306,6 +306,7 @@
       <option value="expectedOrderMonth">受注予定月順</option>
       <option value="dealNo">案件No順</option>
     </select>
+    <button class="btn btn-ghost" id="btnReset">リセット</button>
     <button class="btn btn-primary" id="btnNew">＋ 新規案件</button>
   </div>
 </header>
@@ -884,6 +885,26 @@ function openModal(deal){
 function closeModal(){ overlay.classList.remove('open'); currentDeal = null; isNewMode = false; }
 
 document.getElementById('btnNew').addEventListener('click', openNewModal);
+
+document.getElementById('btnReset').addEventListener('click', () => {
+  branchFilterVal = ''; assigneeFilterVal = ''; rankFilterVal = ''; sourceFilterVal = '';
+  orderMonthFilterVal = ''; minAmountVal = ''; maxAmountVal = ''; conflictOnlyVal = false;
+  searchVal = ''; excludeVal = ''; sortSelectVal = 'date';
+
+  document.getElementById('branchFilter').value = '';
+  document.getElementById('assigneeFilter').value = '';
+  document.getElementById('rankFilter').value = '';
+  document.getElementById('sourceFilter').value = '';
+  document.getElementById('orderMonthFilter').value = '';
+  document.getElementById('minAmount').value = '';
+  document.getElementById('maxAmount').value = '';
+  document.getElementById('conflictOnlyCheck').checked = false;
+  document.getElementById('searchBox').value = '';
+  document.getElementById('excludeBox').value = '';
+  document.getElementById('sortSelect').value = 'date';
+
+  render();
+});
 document.getElementById('btnCancel').addEventListener('click', closeModal);
 overlay.addEventListener('click', e => { if(e.target === overlay) closeModal(); });
 
