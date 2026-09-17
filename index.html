@@ -222,7 +222,7 @@
   </div>
   <div class="col" data-status="見積中">
     <div class="col-head">
-      <div class="col-head-top"><span class="label">見積提出中</span><span class="count mono" id="cnt-見積中">0</span></div>
+      <div class="col-head-top"><span class="label">見積提出済</span><span class="count mono" id="cnt-見積中">0</span></div>
       <div class="col-amt mono" id="amt-見積中"></div>
     </div>
     <div class="col-body" id="col-見積中"></div>
@@ -296,7 +296,7 @@
         <label>ステータス</label>
         <select id="f-status">
           <option value="">未設定</option>
-          <option value="見積中">見積提出中</option>
+          <option value="見積中">見積提出済</option>
           <option value="受注">受注</option>
           <option value="工事中">工事中</option>
           <option value="完了">完了</option>
@@ -411,8 +411,13 @@ function elapsedBadge(deal){
   return `<span class="badge ${cls}">経過${days}日</span>`;
 }
 
-// 明示的なステータスが無くても、見積提出日が入っていれば自動的に「見積提出中」扱いにする
-function effStatus(d){ return d.status || (d.quoteDate ? '見積中' : ''); }
+// 優先順位：手動ステータス ＞ ランクS(自動で受注) ＞ 見積提出日あり(自動で見積提出済) ＞ 未設定
+function effStatus(d){
+  if(d.status) return d.status;
+  if(d.rank === 'S') return '受注';
+  if(d.quoteDate) return '見積中';
+  return '';
+}
 
 function findConflicts(){
   const active = deals.filter(d => (effStatus(d) === '受注' || effStatus(d) === '工事中') && d.constructionStart);
@@ -464,9 +469,6 @@ function render(){
   } else {
     banner.style.display = 'none';
   }
-
-  // 明示的なステータスが無くても、見積提出日が入っていれば自動的に「見積提出中」扱いにする
-  const effStatus = d => d.status || (d.quoteDate ? '見積中' : '');
 
   const RANK_ORDER = { 'S':0, 'A':1, 'B':2, 'C':3, 'E':4 };
   function amountOf(d){
