@@ -586,6 +586,23 @@ function fmtYen(n){
   if(n === '' || n === undefined || n === null || isNaN(n)) return '';
   return '¥' + Number(n).toLocaleString('ja-JP');
 }
+// スプレッドシートの%セルは小数(0.25など)で入ってくるため、%表記に変換する
+function toPercentNumber(v){
+  if(v === '' || v === undefined || v === null || isNaN(v)) return null;
+  let n = Number(v);
+  if(Math.abs(n) <= 1) n = n * 100;
+  return n;
+}
+function fmtPercent(v){
+  const n = toPercentNumber(v);
+  return n === null ? '' : (Math.round(n * 10) / 10) + '%';
+}
+function profitRateBadge(d){
+  const n = toPercentNumber(d.profitRate);
+  if(n === null) return '';
+  const cls = n < 30 ? 'b-red' : 'b-green';
+  return `<span class="badge ${cls}">粗利 ${Math.round(n * 10) / 10}%</span>`;
+}
 function fmtDate(d){
   if(!d) return '';
   const dt = new Date(d);
@@ -829,6 +846,7 @@ function renderCard(d, hasConflict, justUpdated){
     </div>
     <div class="row">
       ${d.rank ? `<span class="badge b-grey">${escapeHtml(d.rank)}</span>` : ''}
+      ${profitRateBadge(d)}
       ${elapsedBadge(d)}
     </div>
     <div class="row mono" style="color:var(--ink-soft); font-size:10.5px;">
