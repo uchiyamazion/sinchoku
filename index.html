@@ -151,8 +151,13 @@
   .card{
     background:var(--paper); border:1px solid var(--line); border-radius:6px;
     padding:10px 11px; cursor:grab; font-size:12.3px; box-shadow: 0 1px 2px rgba(20,30,40,.05);
+    transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
   }
-  .card:hover{ border-color: var(--navy); }
+  .card:hover{
+    border-color: var(--navy);
+    transform: translateY(-3px) scale(1.015);
+    box-shadow: 0 10px 20px rgba(20,30,45,.12);
+  }
   .card.dragging{ opacity:.4; }
   .card .branch-tag{
     display:inline-block; font-size:10px; font-weight:600; color:var(--navy);
@@ -186,6 +191,18 @@
   @keyframes updatedPulse{
     0%{ background: var(--amber-soft); }
     100%{ background: var(--paper); }
+  }
+
+  .confetti-container{
+    position:fixed; inset:0; pointer-events:none; z-index:200; overflow:hidden;
+  }
+  .confetti-piece{
+    position:absolute; top:-20px; width:8px; height:14px; opacity:0.9;
+    animation-name: confettiFall; animation-timing-function: ease-in; animation-fill-mode: forwards;
+  }
+  @keyframes confettiFall{
+    0%{ transform: translateY(0) rotate(0deg); opacity:1; }
+    100%{ transform: translateY(105vh) rotate(600deg); opacity:0; }
   }
 
   #lostToggleWrap{ padding:12px 28px 0; }
@@ -400,42 +417,42 @@
 <div class="board" id="board" style="display:none;">
   <div class="col" data-status="">
     <div class="col-head">
-      <div class="col-head-top"><span class="label">未設定</span><span class="count mono" id="cnt-未設定">0</span></div>
+      <div class="col-head-top"><span class="label">📋 未設定</span><span class="count mono" id="cnt-未設定">0</span></div>
       <div class="col-amt mono" id="amt-未設定"></div>
     </div>
     <div class="col-body" id="col-未設定"></div>
   </div>
   <div class="col" data-status="見積中">
     <div class="col-head">
-      <div class="col-head-top"><span class="label">見積提出済</span><span class="count mono" id="cnt-見積中">0</span></div>
+      <div class="col-head-top"><span class="label">📝 見積提出済</span><span class="count mono" id="cnt-見積中">0</span></div>
       <div class="col-amt mono" id="amt-見積中"></div>
     </div>
     <div class="col-body" id="col-見積中"></div>
   </div>
   <div class="col" data-status="受注">
     <div class="col-head">
-      <div class="col-head-top"><span class="label">受注</span><span class="count mono" id="cnt-受注">0</span></div>
+      <div class="col-head-top"><span class="label">🤝 受注</span><span class="count mono" id="cnt-受注">0</span></div>
       <div class="col-amt mono" id="amt-受注"></div>
     </div>
     <div class="col-body" id="col-受注"></div>
   </div>
   <div class="col" data-status="工事中">
     <div class="col-head">
-      <div class="col-head-top"><span class="label">工事中</span><span class="count mono" id="cnt-工事中">0</span></div>
+      <div class="col-head-top"><span class="label">🔨 工事中</span><span class="count mono" id="cnt-工事中">0</span></div>
       <div class="col-amt mono" id="amt-工事中"></div>
     </div>
     <div class="col-body" id="col-工事中"></div>
   </div>
   <div class="col" data-status="完了">
     <div class="col-head">
-      <div class="col-head-top"><span class="label">完了</span><span class="count mono" id="cnt-完了">0</span></div>
+      <div class="col-head-top"><span class="label">🎉 完了</span><span class="count mono" id="cnt-完了">0</span></div>
       <div class="col-amt mono" id="amt-完了"></div>
     </div>
     <div class="col-body" id="col-完了"></div>
   </div>
   <div class="col" data-status="失注" id="lostCol">
     <div class="col-head">
-      <div class="col-head-top"><span class="label">失注</span><span class="count mono" id="cnt-失注">0</span></div>
+      <div class="col-head-top"><span class="label">💤 失注</span><span class="count mono" id="cnt-失注">0</span></div>
       <div class="col-amt mono" id="amt-失注"></div>
     </div>
     <div class="col-body" id="col-失注"></div>
@@ -618,6 +635,28 @@ function toDateInputVal(d){
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+
+// 受注・完了に案件を動かした時のお祝い演出
+function launchConfetti(){
+  const colors = ['#1F3A5F', '#C97A2B', '#3F7D58', '#B3432B', '#8A97A3'];
+  const container = document.createElement('div');
+  container.className = 'confetti-container';
+  document.body.appendChild(container);
+
+  const count = 60;
+  for(let i = 0; i < count; i++){
+    const piece = document.createElement('div');
+    piece.className = 'confetti-piece';
+    piece.style.left = Math.random() * 100 + 'vw';
+    piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+    piece.style.animationDuration = (1.6 + Math.random() * 1.2) + 's';
+    piece.style.animationDelay = (Math.random() * 0.3) + 's';
+    piece.style.transform = `rotate(${Math.random()*360}deg)`;
+    container.appendChild(piece);
+  }
+  setTimeout(() => container.remove(), 3200);
+}
+
 
 function elapsedBadge(deal){
   const days = deal.elapsedDays;
@@ -920,6 +959,9 @@ document.querySelectorAll('.col-body').forEach(body => {
     }
     deal.status = newStatus;
     render();
+    if(newStatus === '受注' || newStatus === '完了'){
+      launchConfetti();
+    }
     const res = await gasPost('deal_extra_upsert', deal);
     if(res.status === 'success' && res.data.conflicts && res.data.conflicts.length){
       alert('注意：工事日が以下の案件と重複しています。\n' +
