@@ -204,6 +204,20 @@
     0%{ transform: translateY(0) rotate(0deg); opacity:1; }
     100%{ transform: translateY(105vh) rotate(600deg); opacity:0; }
   }
+  .confetti-piece.big{ width:12px; height:20px; }
+
+  .big-deal-banner{
+    position:fixed; top:16%; left:50%; transform: translate(-50%, -20px) scale(0.9);
+    opacity:0; transition: transform .35s cubic-bezier(.34,1.56,.64,1), opacity .35s ease;
+    background: linear-gradient(135deg, #1F3A5F, #2c5182);
+    color:#fff; border-radius:14px; padding:22px 36px; text-align:center;
+    box-shadow: 0 20px 50px rgba(20,30,45,.4); z-index:300;
+  }
+  .big-deal-banner.show{ opacity:1; transform: translate(-50%, 0) scale(1); }
+  .big-deal-emoji{ font-size:34px; }
+  .big-deal-text{ font-size:15px; font-weight:700; margin-top:4px; }
+  .big-deal-amount{ font-size:26px; font-weight:700; font-family:'IBM Plex Mono',monospace; color:#F6C453; margin-top:4px; }
+  .big-deal-name{ font-size:12px; opacity:.85; margin-top:4px; }
 
   #lostToggleWrap{ padding:12px 28px 0; }
   #lostToggleWrap button{ background:none; border:none; color:var(--ink-soft); font-size:12px; cursor:pointer; text-decoration:underline; font-family:inherit; padding:0; }
@@ -636,25 +650,50 @@ function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+// この金額（円）以上の受注/完了は特別演出にする。変更したい場合はここの数字を書き換えてください
+const BIG_DEAL_THRESHOLD = 5000000;
+
 // 受注・完了に案件を動かした時のお祝い演出
-function launchConfetti(){
-  const colors = ['#1F3A5F', '#C97A2B', '#3F7D58', '#B3432B', '#8A97A3'];
+function launchConfetti(big){
+  const colors = big
+    ? ['#D4AF37', '#F6C453', '#C97A2B', '#1F3A5F', '#3F7D58']
+    : ['#1F3A5F', '#C97A2B', '#3F7D58', '#B3432B', '#8A97A3'];
   const container = document.createElement('div');
   container.className = 'confetti-container';
   document.body.appendChild(container);
 
-  const count = 60;
+  const count = big ? 160 : 60;
   for(let i = 0; i < count; i++){
     const piece = document.createElement('div');
-    piece.className = 'confetti-piece';
+    piece.className = 'confetti-piece' + (big ? ' big' : '');
     piece.style.left = Math.random() * 100 + 'vw';
     piece.style.background = colors[Math.floor(Math.random() * colors.length)];
-    piece.style.animationDuration = (1.6 + Math.random() * 1.2) + 's';
-    piece.style.animationDelay = (Math.random() * 0.3) + 's';
+    piece.style.animationDuration = (big ? (2 + Math.random() * 1.5) : (1.6 + Math.random() * 1.2)) + 's';
+    piece.style.animationDelay = (Math.random() * (big ? 0.6 : 0.3)) + 's';
     piece.style.transform = `rotate(${Math.random()*360}deg)`;
     container.appendChild(piece);
   }
-  setTimeout(() => container.remove(), 3200);
+  setTimeout(() => container.remove(), big ? 4200 : 3200);
+}
+
+function showBigDealBanner(deal){
+  const banner = document.createElement('div');
+  banner.className = 'big-deal-banner';
+  banner.innerHTML = `
+    <div class="big-deal-emoji">🏆</div>
+    <div class="big-deal-text">大型案件です！</div>
+    <div class="big-deal-amount">${fmtYen(amountOf(deal))}</div>
+    <div class="big-deal-name">${escapeHtml(deal.siteName || deal.customerName || '')}</div>
+  `;
+  document.body.appendChild(banner);
+  setTimeout(() => banner.classList.add('show'), 10);
+  setTimeout(() => { banner.classList.remove('show'); setTimeout(() => banner.remove(), 400); }, 3500);
+}
+
+function celebrateStatusChange(deal){
+  const big = amountOf(deal) >= BIG_DEAL_THRESHOLD;
+  launchConfetti(big);
+  if(big) showBigDealBanner(deal);
 }
 
 
@@ -960,7 +999,7 @@ document.querySelectorAll('.col-body').forEach(body => {
     deal.status = newStatus;
     render();
     if(newStatus === '受注' || newStatus === '完了'){
-      launchConfetti();
+      celebrateStatusChange(deal);
     }
     const res = await gasPost('deal_extra_upsert', deal);
     if(res.status === 'success' && res.data.conflicts && res.data.conflicts.length){
@@ -1107,6 +1146,9 @@ document.getElementById('btnSave').addEventListener('click', async () => {
     const extraData = { id: newId };
     editFields.forEach(f => { extraData[f] = document.getElementById('f-' + f).value; });
 
+    const prevStatus = effStatus(currentDeal);
+    const newStatusVal = extraData.status || prevStatus;
+
     const extraRes = await gasPost('deal_extra_upsert', extraData);
     if(extraRes.status !== 'success'){ alert('追加情報の保存に失敗しました：' + extraRes.data); return; }
     if(extraRes.data.conflicts && extraRes.data.conflicts.length){
@@ -1114,6 +1156,9 @@ document.getElementById('btnSave').addEventListener('click', async () => {
       document.getElementById('modalConflict').textContent =
         '⚠ 工事日が重複しています： ' +
         extraRes.data.conflicts.map(c => `${c.id}（${fmtDate(c.constructionStart)}〜${fmtDate(c.constructionEnd)}）`).join(' / ');
+    }
+    if((newStatusVal === '受注' || newStatusVal === '完了') && newStatusVal !== prevStatus){
+      celebrateStatusChange(Object.assign({}, currentDeal, extraData));
     }
     await loadDeals();
     closeModal();
