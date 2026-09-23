@@ -219,6 +219,16 @@
   .big-deal-amount{ font-size:26px; font-weight:700; font-family:'IBM Plex Mono',monospace; color:#F6C453; margin-top:4px; }
   .big-deal-name{ font-size:12px; opacity:.85; margin-top:4px; }
 
+  body.screen-shake{ animation: screenShake 0.5s ease; }
+  @keyframes screenShake{
+    0%,100%{ transform: translate(0,0); }
+    20%{ transform: translate(-4px, 2px); }
+    40%{ transform: translate(4px, -2px); }
+    60%{ transform: translate(-3px, 0); }
+    80%{ transform: translate(3px, 1px); }
+  }
+
+
   #lostToggleWrap{ padding:12px 28px 0; }
   #lostToggleWrap button{ background:none; border:none; color:var(--ink-soft); font-size:12px; cursor:pointer; text-decoration:underline; font-family:inherit; padding:0; }
   #lostCol{ display:none; }
@@ -650,50 +660,66 @@ function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-// この金額（円）以上の受注/完了は特別演出にする。変更したい場合はここの数字を書き換えてください
-const BIG_DEAL_THRESHOLD = 5000000;
+// 金額に応じた演出の段階（円）。変更したい場合はここの数字を書き換えてください
+const DEAL_TIERS = [
+  { min: 50000000, emoji: '🎆', label: '特大案件です！！', colors: ['#D4AF37','#F6C453','#E85D75','#4FC3F7','#8BE28B'], count: 260, banner: true, shake: true },
+  { min: 10000000, emoji: '🏆', label: '超大型案件です！',   colors: ['#D4AF37','#F6C453','#C97A2B','#1F3A5F'],           count: 190, banner: true, shake: false },
+  { min: 5000000,  emoji: '🎉', label: '大型案件です！',     colors: ['#F6C453','#C97A2B','#1F3A5F','#3F7D58'],           count: 130, banner: true, shake: false },
+  { min: 1000000,  emoji: '🎊', label: '',                   colors: ['#1F3A5F','#C97A2B','#3F7D58','#8A97A3'],           count: 90,  banner: false, shake: false },
+];
+const BASE_TIER = { min: 0, emoji: '', label: '', colors: ['#1F3A5F','#C97A2B','#3F7D58','#B3432B','#8A97A3'], count: 60, banner: false, shake: false };
+
+function getDealTier(amount){
+  for(const t of DEAL_TIERS){ if(amount >= t.min) return t; }
+  return BASE_TIER;
+}
 
 // 受注・完了に案件を動かした時のお祝い演出
-function launchConfetti(big){
-  const colors = big
-    ? ['#D4AF37', '#F6C453', '#C97A2B', '#1F3A5F', '#3F7D58']
-    : ['#1F3A5F', '#C97A2B', '#3F7D58', '#B3432B', '#8A97A3'];
+function launchConfetti(tier){
   const container = document.createElement('div');
   container.className = 'confetti-container';
   document.body.appendChild(container);
 
-  const count = big ? 160 : 60;
-  for(let i = 0; i < count; i++){
+  const big = tier.count > 100;
+  for(let i = 0; i < tier.count; i++){
     const piece = document.createElement('div');
     piece.className = 'confetti-piece' + (big ? ' big' : '');
     piece.style.left = Math.random() * 100 + 'vw';
-    piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+    piece.style.background = tier.colors[Math.floor(Math.random() * tier.colors.length)];
     piece.style.animationDuration = (big ? (2 + Math.random() * 1.5) : (1.6 + Math.random() * 1.2)) + 's';
     piece.style.animationDelay = (Math.random() * (big ? 0.6 : 0.3)) + 's';
     piece.style.transform = `rotate(${Math.random()*360}deg)`;
     container.appendChild(piece);
   }
-  setTimeout(() => container.remove(), big ? 4200 : 3200);
+  const duration = big ? 4200 : 3200;
+  setTimeout(() => container.remove(), duration);
+
+  // 特大案件はもう一度、少し遅れて追加の紙吹雪を降らせる
+  if(tier.shake){
+    setTimeout(() => launchConfetti(Object.assign({}, tier, { shake: false, count: Math.round(tier.count * 0.6) })), 500);
+    document.body.classList.add('screen-shake');
+    setTimeout(() => document.body.classList.remove('screen-shake'), 500);
+  }
 }
 
-function showBigDealBanner(deal){
+function showBigDealBanner(deal, tier){
   const banner = document.createElement('div');
   banner.className = 'big-deal-banner';
   banner.innerHTML = `
-    <div class="big-deal-emoji">🏆</div>
-    <div class="big-deal-text">大型案件です！</div>
+    <div class="big-deal-emoji">${tier.emoji}</div>
+    <div class="big-deal-text">${escapeHtml(tier.label)}</div>
     <div class="big-deal-amount">${fmtYen(amountOf(deal))}</div>
     <div class="big-deal-name">${escapeHtml(deal.siteName || deal.customerName || '')}</div>
   `;
   document.body.appendChild(banner);
   setTimeout(() => banner.classList.add('show'), 10);
-  setTimeout(() => { banner.classList.remove('show'); setTimeout(() => banner.remove(), 400); }, 3500);
+  setTimeout(() => { banner.classList.remove('show'); setTimeout(() => banner.remove(), 400); }, 3800);
 }
 
 function celebrateStatusChange(deal){
-  const big = amountOf(deal) >= BIG_DEAL_THRESHOLD;
-  launchConfetti(big);
-  if(big) showBigDealBanner(deal);
+  const tier = getDealTier(amountOf(deal));
+  launchConfetti(tier);
+  if(tier.banner) showBigDealBanner(deal, tier);
 }
 
 
