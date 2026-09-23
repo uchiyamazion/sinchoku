@@ -766,6 +766,25 @@ function findConflicts(){
   return { conflictIds, pairs };
 }
 
+// 案件Noが同じ行が複数拠点にまたがっている場合、1件にまとめる
+// （編集は最初に見つかった拠点・行が対象になる。他拠点にも存在することは branches に記録）
+function dedupeByDealNo(list){
+  const seen = new Map();
+  const result = [];
+  list.forEach(d => {
+    if(!d.dealNo){ result.push(Object.assign({}, d, { branches: [d.branch] })); return; }
+    if(seen.has(d.dealNo)){
+      const existing = seen.get(d.dealNo);
+      if(existing.branches.indexOf(d.branch) < 0) existing.branches.push(d.branch);
+    } else {
+      const merged = Object.assign({}, d, { branches: [d.branch] });
+      seen.set(d.dealNo, merged);
+      result.push(merged);
+    }
+  });
+  return result;
+}
+
 function amountOf(d){
   const v = d.confirmedAmount !== '' && d.confirmedAmount != null ? d.confirmedAmount : d.quoteAmount;
   const n = Number(v);
@@ -779,7 +798,7 @@ function visibleDeals(){
   const max = maxAmountVal !== '' ? Number(maxAmountVal) : null;
   const matchFields = d => [d.siteName, d.customerName, d.projectName, d.summary, d.assignee, d.source, d.dealNo];
   return deals.filter(d =>
-    (!branchFilterVal || d.branch === branchFilterVal) &&
+    (!branchFilterVal || (d.branches ? d.branches.includes(branchFilterVal) : d.branch === branchFilterVal)) &&
     (!assigneeFilterVal || d.assignee === assigneeFilterVal) &&
     (!rankFilterVal || d.rank === rankFilterVal) &&
     (!sourceFilterVal || d.source === sourceFilterVal) &&
@@ -796,7 +815,7 @@ function populateFilters(){
   const assigneeSel = document.getElementById('assigneeFilter');
   const sourceSel = document.getElementById('sourceFilter');
   const orderMonthSel = document.getElementById('orderMonthFilter');
-  const branches = [...new Set(deals.map(d => d.branch))].sort();
+  const branches = [...new Set(deals.flatMap(d => d.branches || [d.branch]))].sort();
   const assignees = [...new Set(deals.map(d => d.assignee).filter(Boolean))].sort();
   const sources = [...new Set(deals.map(d => d.source).filter(Boolean))].sort();
   const orderMonths = [...new Set(deals.map(d => d.expectedOrderMonth).filter(Boolean))].sort();
@@ -941,7 +960,7 @@ function renderCard(d, hasConflict, justUpdated){
 
   el.innerHTML = `
     ${justUpdated ? `<div class="updated-flag">✨ 更新されました</div>` : ''}
-    <span class="branch-tag">${escapeHtml(d.branch)}</span>
+    <span class="branch-tag">${escapeHtml((d.branches && d.branches.length > 1) ? d.branches.join(' / ') : d.branch)}</span>
     <div class="cname">${escapeHtml(d.siteName || d.projectName || '(現場未設定)')}</div>
     <div class="pname">${escapeHtml(d.customerName||'')}${d.projectName && d.siteName ? '　' + escapeHtml(d.projectName) : ''}</div>
     <div class="row">
@@ -1225,10 +1244,12 @@ async function loadDeals(){
   const res = await gasGetWithProgress('deal_list', onProgress);
 
   if(res.status === 'success'){
+    const dedupedData = dedupeByDealNo(res.data);
+
     // 初回以降は、前回取得内容と比べて変化があったカードを検知してハイライトする
     if(!isFirstLoad && Object.keys(prevDealsMap).length){
       justUpdatedIds = new Set();
-      res.data.forEach(d => {
+      dedupedData.forEach(d => {
         const prev = prevDealsMap[d.id];
         if(prev !== undefined && prev !== snapshotKey(d)) justUpdatedIds.add(d.id);
       });
@@ -1236,9 +1257,9 @@ async function loadDeals(){
       justUpdatedIds = new Set();
     }
     prevDealsMap = {};
-    res.data.forEach(d => { prevDealsMap[d.id] = snapshotKey(d); });
+    dedupedData.forEach(d => { prevDealsMap[d.id] = snapshotKey(d); });
 
-    deals = res.data;
+    deals = dedupedData;
     populateFilters();
     render();
     const now = new Date();
