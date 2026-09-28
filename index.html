@@ -543,8 +543,8 @@
       <div class="field"><label>工事終了日</label><input type="date" id="f-constructionEnd"></div>
       <div class="field"><label>仕入先</label><input id="f-supplier"></div>
       <div class="field"><label>仕入日</label><input type="date" id="f-purchaseDate"></div>
-      <div class="field"><label>仕入金額（円）</label><input type="number" id="f-purchaseAmount"></div>
-      <div class="field"><label>請求予定月</label><input type="month" id="f-billingMonth"></div>
+      <div class="field"><label>機器仕入れ金額（円）</label><input type="number" id="f-purchaseAmount"></div>
+      <div class="field"><label>支払い月</label><input type="month" id="f-billingMonth"></div>
     </div>
 
     <div id="modalConflict" class="modal-conflict" style="display:none;"></div>
@@ -976,6 +976,7 @@ function renderCard(d, hasConflict, justUpdated){
       <span>${dateLine}</span>
       ${d.assignee ? `<span>${escapeHtml(d.assignee)}</span>` : ''}
     </div>
+    ${(d.purchaseAmount !== '' && d.purchaseAmount != null) || d.billingMonth ? `<div class="row mono purchase-line"><span>仕入 ${d.purchaseAmount !== '' && d.purchaseAmount != null ? fmtYen(d.purchaseAmount) : '－'}</span>${d.billingMonth ? `<span class="badge b-grey">支払 ${escapeHtml(d.billingMonth)}</span>` : ''}</div>` : ''}
     ${d.currentStatus ? `<div class="legacy-status">${escapeHtml(d.currentStatus)}</div>` : ''}
     ${d.updatedAt ? `<div class="updated-at mono">更新 ${fmtDateTime(d.updatedAt)}</div>` : ''}
     ${hasConflict ? `<div class="conflict-flag">⚠ 工事日が他案件と重複</div>` : ''}
