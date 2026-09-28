@@ -193,6 +193,16 @@
     100%{ background: var(--paper); }
   }
 
+  .card.status-unread{ border-left:4px solid var(--amber); }
+  .status-flag{ color:var(--amber); font-weight:700; font-size:10.5px; margin-bottom:4px; }
+  .card .legacy-status.unread{ background:var(--amber-soft); border-top:none; border-radius:4px; padding:6px 7px; margin-top:6px; }
+  .card .legacy-status mark{ background:#FFD76A; color:var(--ink); font-weight:700; padding:0 2px; border-radius:2px; }
+  .prev-status-note{ display:none; margin-top:6px; padding:8px 10px; background:var(--amber-soft); border:1px solid var(--amber); border-radius:6px; font-size:11.5px; color:var(--ink); }
+  .prev-status-note .psn-title{ font-weight:700; color:var(--amber); }
+  .prev-status-note .psn-old{ margin-top:3px; color:var(--ink-soft); white-space:pre-wrap; }
+  #summaryBar .s-val.s-warn{ color:var(--amber); }
+  .btn-mini{ padding:3px 8px; font-size:11px; margin-left:6px; }
+
   .confetti-container{
     position:fixed; inset:0; pointer-events:none; z-index:200; overflow:hidden;
   }
@@ -422,6 +432,11 @@
         <input type="checkbox" id="conflictOnlyCheck"> 工事日重複のみ表示
       </label>
     </div>
+    <div class="filter-field filter-field-checkbox">
+      <label class="checkbox-label">
+        <input type="checkbox" id="statusUnreadOnlyCheck"> 現在状況が更新された案件のみ
+      </label>
+    </div>
   </div>
   <div class="filter-panel-actions">
     <button class="btn btn-ghost" id="btnReset">条件をリセット</button>
@@ -519,7 +534,7 @@
       <div class="field"><label>確定金額（円）</label><input type="number" id="c-confirmedAmount"></div>
       <div class="field"><label>受注予定月</label><input id="c-expectedOrderMonth"></div>
       <div class="field"><label>粗利率</label><input id="c-profitRate"></div>
-      <div class="field full"><label>現在状況（シート記載）</label><textarea id="c-currentStatus"></textarea></div>
+      <div class="field full"><label>現在状況（シート記載）</label><textarea id="c-currentStatus"></textarea><div id="prevStatusNote" class="prev-status-note"></div></div>
       <div class="field full"><label>未実行の課題</label><textarea id="c-pendingIssue"></textarea></div>
     </div>
 
@@ -572,6 +587,69 @@ let orderMonthFilterVal = '';
 let minAmountVal = '';
 let maxAmountVal = '';
 let conflictOnlyVal = false;
+let unreadOnlyVal = false;
+
+// ==== 現在状況の更新検知（このブラウザで最後に確認した内容との比較） ====
+const SEEN_KEY = 'sinchoku_status_seen_v1';
+let seenMap = null;     // id -> 最後に確認した現在状況テキスト
+let unreadInfo = {};    // id -> { kind: 'new' | 'append' | 'change', oldText, newText }
+
+function loadSeenMap(){
+  try{ const raw = localStorage.getItem(SEEN_KEY); if(raw) return JSON.parse(raw); }catch(e){}
+  return null;
+}
+function saveSeenMap(){
+  try{ localStorage.setItem(SEEN_KEY, JSON.stringify(seenMap)); }catch(e){}
+}
+function statusTextOf(d){ return String(d.currentStatus == null ? '' : d.currentStatus).trim(); }
+
+function computeUnread(){
+  if(seenMap === null) seenMap = loadSeenMap();
+  const firstTime = (seenMap === null);
+  if(firstTime) seenMap = {};
+  unreadInfo = {};
+  let dirty = firstTime;
+  deals.forEach(d => {
+    const cur = statusTextOf(d);
+    if(!(d.id in seenMap)){ seenMap[d.id] = cur; dirty = true; return; }
+    const old = seenMap[d.id];
+    if(old === cur) return;
+    let kind = 'change';
+    if(!old && cur) kind = 'new';
+    else if(old && cur.length > old.length && cur.startsWith(old)) kind = 'append';
+    unreadInfo[d.id] = { kind: kind, oldText: old, newText: cur };
+  });
+  if(dirty) saveSeenMap();
+}
+function setSeenText(id, text){
+  if(seenMap === null) seenMap = loadSeenMap() || {};
+  seenMap[id] = String(text == null ? '' : text).trim();
+  delete unreadInfo[id];
+  saveSeenMap();
+}
+function markSeen(id){
+  const d = deals.find(x => x.id === id);
+  if(d) setSeenText(id, d.currentStatus);
+}
+function markAllSeen(){
+  deals.forEach(d => { if(unreadInfo[d.id]) seenMap[d.id] = statusTextOf(d); });
+  unreadInfo = {};
+  saveSeenMap();
+  render();
+}
+function unreadLabel(kind){
+  return kind === 'new' ? '📝 現在状況が記入されました'
+       : kind === 'append' ? '📝 現在状況に追記あり'
+       : '📝 現在状況が更新されました';
+}
+function statusBlockHtml(d, u){
+  if(!d.currentStatus) return '';
+  if(u && u.kind === 'append'){
+    const added = u.newText.slice(u.oldText.length);
+    return `<div class="legacy-status unread">${escapeHtml(u.oldText)}<mark>${escapeHtml(added)}</mark></div>`;
+  }
+  return `<div class="legacy-status${u ? ' unread' : ''}">${escapeHtml(d.currentStatus)}</div>`;
+}
 let sortSelectVal = 'date';
 
 function gasGet(action, params={}){
@@ -831,7 +909,7 @@ function populateFilters(){
 function updateFilterCountBadge(){
   const count = [
     branchFilterVal, assigneeFilterVal, rankFilterVal, sourceFilterVal, orderMonthFilterVal,
-    minAmountVal, maxAmountVal, excludeVal, conflictOnlyVal ? 'x' : ''
+    minAmountVal, maxAmountVal, excludeVal, conflictOnlyVal ? 'x' : '', unreadOnlyVal ? 'x' : ''
   ].filter(Boolean).length;
   const badge = document.getElementById('filterCount');
   if(count > 0){
@@ -847,6 +925,7 @@ function render(){
   let visible = visibleDeals();
   const { conflictIds, pairs } = findConflicts();
   if(conflictOnlyVal) visible = visible.filter(d => conflictIds.has(d.id));
+  if(unreadOnlyVal) visible = visible.filter(d => unreadInfo[d.id]);
 
   const banner = document.getElementById('conflictBanner');
   if(pairs.length){
@@ -923,11 +1002,13 @@ function render(){
   const totalConfirmed = summaryDeals.filter(d => d.confirmedAmount !== '' && d.confirmedAmount != null)
     .reduce((s,d) => s + (Number(d.confirmedAmount)||0), 0);
   const totalAll = summaryDeals.reduce((s,d) => s + amountOf(d), 0);
+  const unreadCount = summaryDeals.filter(d => unreadInfo[d.id]).length;
   document.getElementById('summaryBar').innerHTML = `
     <div class="s-item"><span class="s-label">表示中の件数</span><span class="s-val">${summaryDeals.length}件</span></div>
     <div class="s-item"><span class="s-label">合計金額（確定優先）</span><span class="s-val">${fmtYen(totalAll)}</span></div>
     <div class="s-item"><span class="s-label">見積金額合計</span><span class="s-val">${fmtYen(totalQuote)}</span></div>
     <div class="s-item"><span class="s-label">確定金額合計</span><span class="s-val">${fmtYen(totalConfirmed)}</span></div>
+    ${unreadCount ? `<div class="s-item"><span class="s-label">現在状況の更新（未確認）</span><span class="s-val s-warn">${unreadCount}件<button class="btn btn-ghost btn-mini" onclick="markAllSeen()">すべて既読にする</button></span></div>` : ''}
   `;
 
   document.getElementById('lostCol').style.display = showLost ? 'flex' : 'none';
@@ -942,7 +1023,8 @@ function fmtDateTime(d){
 
 function renderCard(d, hasConflict, justUpdated){
   const el = document.createElement('div');
-  el.className = 'card' + (justUpdated ? ' just-updated' : '');
+  const uInfo = unreadInfo[d.id];
+  el.className = 'card' + (justUpdated ? ' just-updated' : '') + (uInfo ? ' status-unread' : '');
   el.draggable = true;
   el.dataset.id = d.id;
 
@@ -959,6 +1041,7 @@ function renderCard(d, hasConflict, justUpdated){
     ? `<span class="badge b-grey mono">見積時 ${fmtYen(d.quoteAmount)}</span>` : '';
 
   el.innerHTML = `
+    ${uInfo ? `<div class="status-flag">${unreadLabel(uInfo.kind)}</div>` : ''}
     ${justUpdated ? `<div class="updated-flag">✨ 更新されました</div>` : ''}
     <span class="branch-tag">${escapeHtml((d.branches && d.branches.length > 1) ? d.branches.join(' / ') : d.branch)}</span>
     <div class="cname">${escapeHtml(d.siteName || d.projectName || '(現場未設定)')}</div>
@@ -977,7 +1060,7 @@ function renderCard(d, hasConflict, justUpdated){
       ${d.assignee ? `<span>${escapeHtml(d.assignee)}</span>` : ''}
     </div>
     ${(d.purchaseAmount !== '' && d.purchaseAmount != null) || d.billingMonth ? `<div class="row mono purchase-line"><span>仕入 ${d.purchaseAmount !== '' && d.purchaseAmount != null ? fmtYen(d.purchaseAmount) : '－'}</span>${d.billingMonth ? `<span class="badge b-grey">支払 ${escapeHtml(d.billingMonth)}</span>` : ''}</div>` : ''}
-    ${d.currentStatus ? `<div class="legacy-status">${escapeHtml(d.currentStatus)}</div>` : ''}
+    ${statusBlockHtml(d, uInfo)}
     ${d.updatedAt ? `<div class="updated-at mono">更新 ${fmtDateTime(d.updatedAt)}</div>` : ''}
     ${hasConflict ? `<div class="conflict-flag">⚠ 工事日が他案件と重複</div>` : ''}
   `;
@@ -995,6 +1078,7 @@ document.getElementById('rankFilter').addEventListener('change', e => { rankFilt
 document.getElementById('sourceFilter').addEventListener('change', e => { sourceFilterVal = e.target.value; render(); });
 document.getElementById('orderMonthFilter').addEventListener('change', e => { orderMonthFilterVal = e.target.value; render(); });
 document.getElementById('conflictOnlyCheck').addEventListener('change', e => { conflictOnlyVal = e.target.checked; render(); });
+document.getElementById('statusUnreadOnlyCheck').addEventListener('change', e => { unreadOnlyVal = e.target.checked; render(); });
 let amountDebounce;
 function onAmountInput(){
   clearTimeout(amountDebounce);
@@ -1086,6 +1170,7 @@ function openNewModal(){
   branchSel.innerHTML = BRANCHES.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
   document.getElementById('newBranchField').style.display = 'block';
   document.getElementById('dealNoLabel').textContent = '案件No（空欄なら自動採番）';
+  document.getElementById('prevStatusNote').style.display = 'none';
 
   document.getElementById('modalConflict').style.display = 'none';
   overlay.classList.add('open');
@@ -1116,6 +1201,20 @@ function openModal(deal){
     }
   });
 
+  // 現在状況の更新があれば、前回確認時の内容を表示してから既読にする
+  const uInfo = unreadInfo[deal.id];
+  const note = document.getElementById('prevStatusNote');
+  if(uInfo){
+    note.innerHTML = `<div class="psn-title">${unreadLabel(uInfo.kind)}</div>` +
+      (uInfo.oldText ? `<div class="psn-old">前回確認時：${escapeHtml(uInfo.oldText)}</div>` : '');
+    note.style.display = 'block';
+    markSeen(deal.id);
+    render();
+  } else {
+    note.style.display = 'none';
+    note.innerHTML = '';
+  }
+
   document.getElementById('modalConflict').style.display = 'none';
   overlay.classList.add('open');
 }
@@ -1132,7 +1231,7 @@ document.getElementById('btnCloseFilters').addEventListener('click', () => {
 
 document.getElementById('btnReset').addEventListener('click', () => {
   branchFilterVal = ''; assigneeFilterVal = ''; rankFilterVal = ''; sourceFilterVal = '';
-  orderMonthFilterVal = ''; minAmountVal = ''; maxAmountVal = ''; conflictOnlyVal = false;
+  orderMonthFilterVal = ''; minAmountVal = ''; maxAmountVal = ''; conflictOnlyVal = false; unreadOnlyVal = false;
   searchVal = ''; excludeVal = ''; sortSelectVal = 'date';
 
   document.getElementById('branchFilter').value = '';
@@ -1143,6 +1242,7 @@ document.getElementById('btnReset').addEventListener('click', () => {
   document.getElementById('minAmount').value = '';
   document.getElementById('maxAmount').value = '';
   document.getElementById('conflictOnlyCheck').checked = false;
+  document.getElementById('statusUnreadOnlyCheck').checked = false;
   document.getElementById('searchBox').value = '';
   document.getElementById('excludeBox').value = '';
   document.getElementById('sortSelect').value = 'date';
@@ -1167,6 +1267,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
       if(createRes.status !== 'success'){ alert('作成に失敗しました：' + createRes.data); return; }
 
       const newId = createRes.data.id;
+      setSeenText(newId, document.getElementById('c-currentStatus').value);
       const extraData = { id: newId };
       editFields.forEach(f => { extraData[f] = document.getElementById('f-' + f).value; });
       const extraRes = await gasPost('deal_extra_upsert', extraData);
@@ -1188,6 +1289,9 @@ document.getElementById('btnSave').addEventListener('click', async () => {
 
     // 案件Noを変更した場合は、追加情報の紐付けIDも新しいものを使う（バックエンド側で付け替え済み）
     const newId = (newDealNo !== origDealNo) ? (currentDeal.branch + '::' + newDealNo) : id;
+    const savedStatusText = document.getElementById('c-currentStatus').value;
+    setSeenText(id, savedStatusText);
+    if(newId !== id) setSeenText(newId, savedStatusText);
 
     const extraData = { id: newId };
     editFields.forEach(f => { extraData[f] = document.getElementById('f-' + f).value; });
@@ -1261,6 +1365,7 @@ async function loadDeals(){
     dedupedData.forEach(d => { prevDealsMap[d.id] = snapshotKey(d); });
 
     deals = dedupedData;
+    computeUnread();
     populateFilters();
     render();
     const now = new Date();
