@@ -193,6 +193,21 @@
     100%{ background: var(--paper); }
   }
 
+  .field-hint{ font-size:10.5px; color:var(--ink-soft); line-height:1.5; }
+  .cash-modal{ max-width:760px; }
+  .cash-sub{ font-size:11.5px; color:var(--ink-soft); margin:2px 0 12px; line-height:1.7; }
+  .cash-table-wrap{ overflow-x:auto; }
+  .cash-table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  .cash-table th, .cash-table td{ padding:8px 10px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+  .cash-table th:first-child, .cash-table td:first-child{ text-align:left; }
+  .cash-table th{ font-size:11px; color:var(--ink-soft); font-weight:600; background:#F5F8FB; }
+  .cash-table td.num{ font-family:'IBM Plex Mono',monospace; }
+  .cash-table tr.cur td{ background:var(--navy-soft); font-weight:700; }
+  .cash-table td.neg{ color:var(--red); }
+  .cash-table tfoot td{ font-weight:700; border-top:2px solid var(--line); border-bottom:none; }
+  .cash-count{ font-size:10px; color:var(--ink-soft); margin-left:4px; font-family:'IBM Plex Sans JP',sans-serif; }
+  .cash-note{ margin-top:12px; padding:9px 11px; background:var(--grey-soft); border-radius:6px; font-size:11.5px; color:var(--ink); line-height:1.7; }
+  #summaryBar .s-action{ justify-content:center; }
   .card.status-unread{ border-left:4px solid var(--amber); }
   .status-flag{ color:var(--amber); font-weight:700; font-size:10.5px; margin-bottom:4px; }
   .card .legacy-status.unread{ background:var(--amber-soft); border-top:none; border-radius:4px; padding:6px 7px; margin-top:6px; }
@@ -451,6 +466,18 @@
   <div id="loadingText">読み込み中…</div>
 </div>
 
+<div class="overlay" id="cashOverlay">
+  <div class="modal cash-modal">
+    <h2>💴 仕入・入金の見込み</h2>
+    <div class="cash-sub">
+      シオンテクノスの支払いは<b>翌々月払い</b>：仕入日の翌々月として自動計算します（支払い月を入力した案件はそちらを優先）。<br>
+      入金は案件ごとに入力した「入金予定月」で集計します（受注・工事中・完了の案件が対象）。現在の絞り込み条件が反映されます。
+    </div>
+    <div id="cashBody"></div>
+    <div class="modal-actions"><button class="btn btn-primary" id="btnCashClose">閉じる</button></div>
+  </div>
+</div>
+
 <div id="summaryBar"></div>
 
 <div class="board" id="board" style="display:none;">
@@ -559,7 +586,9 @@
       <div class="field"><label>仕入先</label><input id="f-supplier"></div>
       <div class="field"><label>仕入日</label><input type="date" id="f-purchaseDate"></div>
       <div class="field"><label>機器仕入れ金額（円）</label><input type="number" id="f-purchaseAmount"></div>
-      <div class="field"><label>支払い月</label><input type="month" id="f-billingMonth"></div>
+      <div class="field"><label>支払い月（仕入先への支払い）</label><input type="month" id="f-billingMonth"><span class="field-hint" id="payMonthHint"></span></div>
+      <div class="field full"><label>入金条件（注文書の内容）</label><input id="f-paymentTerms" placeholder="例：月末締め翌月末払い"></div>
+      <div class="field"><label>入金予定月</label><input type="month" id="f-receiptMonth"></div>
     </div>
 
     <div id="modalConflict" class="modal-conflict" style="display:none;"></div>
@@ -588,6 +617,127 @@ let minAmountVal = '';
 let maxAmountVal = '';
 let conflictOnlyVal = false;
 let unreadOnlyVal = false;
+
+// ==== 仕入・入金の見込み ====
+function normMonth(v){
+  if(v === '' || v == null) return '';
+  const s = String(v);
+  if(/^\d{4}-\d{2}$/.test(s)) return s;
+  const dt = new Date(v);
+  if(isNaN(dt.getTime())) return s;
+  return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0');
+}
+function addMonths(ym, n){
+  const parts = ym.split('-').map(Number);
+  const dt = new Date(parts[0], parts[1] - 1 + n, 1);
+  return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0');
+}
+// シオンテクノスの支払い条件は翌々月払い：支払い月が未入力なら、仕入日の翌々月とみなす
+function payMonthOf(d){
+  const b = normMonth(d.billingMonth);
+  if(b) return { month: b, auto: false };
+  if(d.purchaseDate){
+    const pd = new Date(d.purchaseDate);
+    if(!isNaN(pd.getTime())){
+      const ym = pd.getFullYear() + '-' + String(pd.getMonth() + 1).padStart(2, '0');
+      return { month: addMonths(ym, 2), auto: true };
+    }
+  }
+  return { month: '', auto: false };
+}
+function purchaseLineHtml(d){
+  const hasAmt = d.purchaseAmount !== '' && d.purchaseAmount != null;
+  const pay = payMonthOf(d);
+  const recv = normMonth(d.receiptMonth);
+  if(!hasAmt && !pay.month && !recv) return '';
+  return `<div class="row mono purchase-line">` +
+    ((hasAmt || pay.month) ? `<span>仕入 ${hasAmt ? fmtYen(d.purchaseAmount) : '－'}</span>` : '') +
+    (pay.month ? `<span class="badge b-grey">支払 ${escapeHtml(pay.month)}${pay.auto ? '（予）' : ''}</span>` : '') +
+    (recv ? `<span class="badge b-green" title="${escapeHtml(d.paymentTerms || '')}">入金 ${escapeHtml(recv)}</span>` : '') +
+    `</div>`;
+}
+function updatePayMonthHint(){
+  const hint = document.getElementById('payMonthHint');
+  if(!hint) return;
+  const bm = document.getElementById('f-billingMonth').value;
+  const pd = document.getElementById('f-purchaseDate').value;
+  if(bm){ hint.textContent = ''; return; }
+  hint.textContent = pd
+    ? `空欄なら仕入日の翌々月（${addMonths(pd.slice(0, 7), 2)}）として扱います`
+    : '空欄なら仕入日の翌々月として扱います（仕入日を入れると自動計算）';
+}
+function getPanelDeals(){
+  let list = visibleDeals();
+  const conf = findConflicts();
+  if(conflictOnlyVal) list = list.filter(d => conf.conflictIds.has(d.id));
+  if(unreadOnlyVal) list = list.filter(d => unreadInfo[d.id]);
+  return list.filter(d => effStatus(d) !== '失注');
+}
+function ymLabel(ym){ const p = ym.split('-'); return `${p[0]}年${Number(p[1])}月`; }
+function cashCell(sum, n){ return n ? `${fmtYen(sum)}<span class="cash-count">${n}件</span>` : '－'; }
+
+function openCashPanel(){
+  const list = getPanelDeals();
+  const months = {};
+  const ensure = ym => (months[ym] = months[ym] || { pay: 0, payN: 0, recv: 0, recvN: 0 });
+  const won = ['受注', '工事中', '完了'];
+  let unschedPay = 0, unschedN = 0, noPurN = 0, estCost = 0, estN = 0;
+
+  list.forEach(d => {
+    const isWon = won.indexOf(effStatus(d)) >= 0;
+    const hasAmt = d.purchaseAmount !== '' && d.purchaseAmount != null && !isNaN(d.purchaseAmount);
+    if(hasAmt){
+      const amt = Number(d.purchaseAmount);
+      const pm = payMonthOf(d).month;
+      if(pm){ const m = ensure(pm); m.pay += amt; m.payN++; }
+      else { unschedPay += amt; unschedN++; }
+    } else if(isWon){
+      noPurN++;
+      const profit = Number(d.profit) || Number(d.plannedProfit) || 0;
+      const sales = amountOf(d);
+      if(sales > 0 && profit > 0){ estCost += Math.max(sales - profit, 0); estN++; }
+    }
+    const rm = normMonth(d.receiptMonth);
+    if(rm && isWon){ const m = ensure(rm); m.recv += amountOf(d); m.recvN++; }
+  });
+
+  const keys = Object.keys(months).sort();
+  const now = new Date();
+  const curYm = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  let html = '';
+
+  if(keys.length){
+    let tp = 0, tr = 0, tpn = 0, trn = 0;
+    html += `<div class="cash-table-wrap"><table class="cash-table"><thead><tr><th>月</th><th>仕入の支払い予定</th><th>入金予定</th><th>差引（入金−支払）</th></tr></thead><tbody>`;
+    keys.forEach(k => {
+      const m = months[k];
+      tp += m.pay; tr += m.recv; tpn += m.payN; trn += m.recvN;
+      const net = m.recv - m.pay;
+      html += `<tr class="${k === curYm ? 'cur' : ''}"><td>${ymLabel(k)}${k === curYm ? '（今月）' : ''}</td>` +
+        `<td class="num">${cashCell(m.pay, m.payN)}</td><td class="num">${cashCell(m.recv, m.recvN)}</td>` +
+        `<td class="num ${net < 0 ? 'neg' : ''}">${(m.pay || m.recv) ? (net < 0 ? '−' : '') + fmtYen(Math.abs(net)) : '－'}</td></tr>`;
+    });
+    const tnet = tr - tp;
+    html += `</tbody><tfoot><tr><td>合計</td><td class="num">${cashCell(tp, tpn)}</td><td class="num">${cashCell(tr, trn)}</td>` +
+      `<td class="num ${tnet < 0 ? 'neg' : ''}">${(tnet < 0 ? '−' : '') + fmtYen(Math.abs(tnet))}</td></tr></tfoot></table></div>`;
+  } else {
+    html += `<div class="cash-note">仕入金額が入っている案件、または入金予定月が入っている受注以降の案件が、まだありません。</div>`;
+  }
+
+  if(unschedN){
+    html += `<div class="cash-note">仕入金額は入っているが支払い月が決まらない案件：<b>${unschedN}件（${fmtYen(unschedPay)}）</b><br>仕入日か支払い月を入れると、月別に集計されます。</div>`;
+  }
+  if(noPurN){
+    html += `<div class="cash-note">受注以降で<b>仕入金額が未入力</b>の案件：<b>${noPurN}件</b>` +
+      (estN ? `<br>概算原価（見積/確定金額 − 粗利）：<b>${fmtYen(estCost)}</b>（${estN}件分）` : '') +
+      `<br>※概算には外注費など仕入以外の原価も含まれます。目安としてご覧ください。</div>`;
+  }
+
+  document.getElementById('cashBody').innerHTML = html;
+  document.getElementById('cashOverlay').classList.add('open');
+}
+document.getElementById('btnCashClose').addEventListener('click', () => document.getElementById('cashOverlay').classList.remove('open'));
+document.getElementById('cashOverlay').addEventListener('click', e => { if(e.target.id === 'cashOverlay') e.target.classList.remove('open'); });
 
 // ==== 現在状況の更新検知（このブラウザで最後に確認した内容との比較） ====
 const SEEN_KEY = 'sinchoku_status_seen_v1';
@@ -1009,6 +1159,7 @@ function render(){
     <div class="s-item"><span class="s-label">見積金額合計</span><span class="s-val">${fmtYen(totalQuote)}</span></div>
     <div class="s-item"><span class="s-label">確定金額合計</span><span class="s-val">${fmtYen(totalConfirmed)}</span></div>
     ${unreadCount ? `<div class="s-item"><span class="s-label">現在状況の更新（未確認）</span><span class="s-val s-warn">${unreadCount}件<button class="btn btn-ghost btn-mini" onclick="markAllSeen()">すべて既読にする</button></span></div>` : ''}
+    <div class="s-item s-action"><button class="btn btn-ghost" onclick="openCashPanel()">💴 仕入・入金見込</button></div>
   `;
 
   document.getElementById('lostCol').style.display = showLost ? 'flex' : 'none';
@@ -1059,7 +1210,7 @@ function renderCard(d, hasConflict, justUpdated){
       <span>${dateLine}</span>
       ${d.assignee ? `<span>${escapeHtml(d.assignee)}</span>` : ''}
     </div>
-    ${(d.purchaseAmount !== '' && d.purchaseAmount != null) || d.billingMonth ? `<div class="row mono purchase-line"><span>仕入 ${d.purchaseAmount !== '' && d.purchaseAmount != null ? fmtYen(d.purchaseAmount) : '－'}</span>${d.billingMonth ? `<span class="badge b-grey">支払 ${escapeHtml(d.billingMonth)}</span>` : ''}</div>` : ''}
+    ${purchaseLineHtml(d)}
     ${statusBlockHtml(d, uInfo)}
     ${d.updatedAt ? `<div class="updated-at mono">更新 ${fmtDateTime(d.updatedAt)}</div>` : ''}
     ${hasConflict ? `<div class="conflict-flag">⚠ 工事日が他案件と重複</div>` : ''}
@@ -1149,7 +1300,7 @@ document.getElementById('toggleLost').addEventListener('click', () => {
 const overlay = document.getElementById('overlay');
 const BRANCHES = ['営業部','営業部（ビルメン）','１課','２課','３課','函館','旭川'];
 const coreFields = ['dealNo','assignee','customerName','siteName','projectName','summary','occurredDate','rank','quoteAmount','confirmedAmount','expectedOrderMonth','profitRate','currentStatus','pendingIssue'];
-const editFields = ['status','quoteDate','lostReason','winFactor','constructionStart','constructionEnd','supplier','purchaseDate','purchaseAmount','billingMonth'];
+const editFields = ['status','quoteDate','lostReason','winFactor','constructionStart','constructionEnd','supplier','purchaseDate','purchaseAmount','billingMonth','paymentTerms','receiptMonth'];
 let currentDeal = null;
 let isNewMode = false;
 
@@ -1165,6 +1316,7 @@ function openNewModal(){
   document.getElementById('modalTitle').textContent = '新規案件';
   document.getElementById('f-id').value = '';
   clearForm();
+  updatePayMonthHint();
 
   const branchSel = document.getElementById('c-branch');
   branchSel.innerHTML = BRANCHES.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
@@ -1196,10 +1348,14 @@ function openModal(deal){
     const el = document.getElementById('f-' + f);
     if(f === 'quoteDate' || f === 'constructionStart' || f === 'constructionEnd' || f === 'purchaseDate'){
       el.value = toDateInputVal(deal[f]);
+    } else if(f === 'billingMonth' || f === 'receiptMonth'){
+      el.value = normMonth(deal[f]);
     } else {
       el.value = deal[f] || '';
     }
   });
+
+  updatePayMonthHint();
 
   // 現在状況の更新があれば、前回確認時の内容を表示してから既読にする
   const uInfo = unreadInfo[deal.id];
@@ -1221,6 +1377,8 @@ function openModal(deal){
 function closeModal(){ overlay.classList.remove('open'); currentDeal = null; isNewMode = false; }
 
 document.getElementById('btnNew').addEventListener('click', openNewModal);
+document.getElementById('f-purchaseDate').addEventListener('input', updatePayMonthHint);
+document.getElementById('f-billingMonth').addEventListener('input', updatePayMonthHint);
 
 document.getElementById('btnToggleFilters').addEventListener('click', () => {
   document.getElementById('filterPanel').classList.toggle('open');

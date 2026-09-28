@@ -40,6 +40,7 @@ const EXTRA_HEADERS = [
   'id', 'status', 'quoteDate', 'lostReason', 'winFactor',
   'constructionStart', 'constructionEnd',
   'supplier', 'purchaseDate', 'purchaseAmount', 'billingMonth',
+  'paymentTerms', 'receiptMonth',
   'updatedAt'
 ];
 
@@ -48,8 +49,24 @@ function ensureExtraSheet_() {
   if (!sh) {
     sh = SS().insertSheet(EXTRA_SHEET_NAME);
     sh.appendRow(EXTRA_HEADERS);
+    return sh;
+  }
+  // 既存シートに新しい項目の見出しが無ければ、末尾に追加する（列の順序は問わない）
+  const lastCol = Math.max(sh.getLastColumn(), 1);
+  const cur = sh.getRange(1, 1, 1, lastCol).getValues()[0].filter(String);
+  const missing = EXTRA_HEADERS.filter(h => cur.indexOf(h) < 0);
+  if (missing.length) {
+    sh.getRange(1, cur.length + 1, 1, missing.length).setValues([missing]);
   }
   return sh;
+}
+
+// 月の値（"2026-11" など）がスプレッドシート側で日付に変換されていても "yyyy-MM" に揃える
+function normMonthStr_(v) {
+  if (v instanceof Date && !isNaN(v.getTime())) {
+    return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM');
+  }
+  return v || '';
 }
 
 // 初回セットアップ用：一度手動実行してください
@@ -192,7 +209,9 @@ function dealList() {
       supplier: extra.supplier || '',
       purchaseDate: extra.purchaseDate || '',
       purchaseAmount: extra.purchaseAmount || '',
-      billingMonth: extra.billingMonth || '',
+      billingMonth: normMonthStr_(extra.billingMonth),
+      paymentTerms: extra.paymentTerms || '',
+      receiptMonth: normMonthStr_(extra.receiptMonth),
       updatedAt: extra.updatedAt || '',
       elapsedDays: calcElapsedDays_(baseDate, status)
     });
