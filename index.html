@@ -587,8 +587,8 @@
         </select>
       </div>
       <div class="field"><label>見積提出日</label><input type="date" id="f-quoteDate"></div>
-      <div class="field"><label>次回アクション期限</label><input type="date" id="f-nextActionDate"></div>
-      <div class="field full"><label>次回アクション内容</label><input id="f-nextActionNote" placeholder="例：再見積提出・電話フォロー"></div>
+      <div class="field" id="fw-nextActionDate"><label>次回アクション期限</label><input type="date" id="f-nextActionDate"></div>
+      <div class="field full" id="fw-nextActionNote"><label>次回アクション内容</label><input id="f-nextActionNote" placeholder="例：再見積提出・電話フォロー"></div>
       <div class="field full" id="lostReasonField"><label>失注理由</label><textarea id="f-lostReason"></textarea></div>
       <div class="field full"><label>受注の決め手</label><textarea id="f-winFactor"></textarea></div>
       <div class="field"><label>工事開始日</label><input type="date" id="f-constructionStart"></div>
@@ -1616,6 +1616,9 @@ async function loadDeals(){
     dedupedData.forEach(d => { prevDealsMap[d.id] = snapshotKey(d); });
 
     deals = dedupedData;
+    // GAS側が未更新（次回アクション列が返ってこない）の間は、保存されない入力欄を隠す
+    const gasReady = !deals.length || ('nextActionDate' in deals[0]);
+    ['fw-nextActionDate','fw-nextActionNote'].forEach(i => { document.getElementById(i).style.display = gasReady ? '' : 'none'; });
     computeUnread();
     populateFilters();
     render();
