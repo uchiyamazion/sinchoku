@@ -41,6 +41,7 @@ const EXTRA_HEADERS = [
   'constructionStart', 'constructionEnd',
   'supplier', 'purchaseDate', 'purchaseAmount', 'billingMonth',
   'paymentTerms', 'receiptMonth',
+  'nextActionDate', 'nextActionNote',
   'updatedAt'
 ];
 
@@ -102,6 +103,7 @@ function doPost(e) {
       case 'deal_extra_upsert': return dealExtraUpsert(payload.data || payload);
       case 'deal_core_update':  return dealCoreUpdate(payload.data || payload);
       case 'deal_core_create':  return dealCoreCreate(payload.data || payload);
+      case 'deal_conflict_check': return dealConflictCheck(payload.data || payload);
       default:                  return makeErr('不明なaction: ' + action);
     }
   } catch (err) {
@@ -212,6 +214,8 @@ function dealList() {
       billingMonth: normMonthStr_(extra.billingMonth),
       paymentTerms: extra.paymentTerms || '',
       receiptMonth: normMonthStr_(extra.receiptMonth),
+      nextActionDate: extra.nextActionDate || '',
+      nextActionNote: extra.nextActionNote || '',
       updatedAt: extra.updatedAt || '',
       elapsedDays: calcElapsedDays_(baseDate, status)
     });
@@ -242,6 +246,79 @@ const EDITABLE_CORE_FIELDS = [
   'assignee', 'quoteAmount', 'plannedProfit', 'rank', 'expectedOrderMonth',
   'currentStatus', 'pendingIssue', 'confirmedAmount', 'profit', 'profitRate'
 ];
+
+
+// ════════════════════════════════════════════════
+// 競合検知（同時編集による上書き防止）
+// ════════════════════════════════════════════════
+
+function normVal_(v) {
+  if (v instanceof Date && !isNaN(v.getTime())) return v.toISOString();
+  return (v === null || v === undefined) ? '' : String(v);
+}
+
+// 案件Noで行ズレを補正して行番号を返す（見つからなければ -1）
+function resolveRowNum_(sh, rowNum, origDealNo) {
+  rowNum = Number(rowNum);
+  if (!origDealNo) return rowNum;
+  if (String(sh.getRange(rowNum, COL.dealNo).getValue()) === String(origDealNo)) return rowNum;
+  const lastRow = sh.getLastRow();
+  for (let r = DATA_START_ROW; r <= lastRow; r++) {
+    if (String(sh.getRange(r, COL.dealNo).getValue()) === String(origDealNo)) return r;
+  }
+  return -1;
+}
+
+// 自分が変更した項目(changed)について、読み込み時の値(base)と現在のシートの値が違えば競合
+function coreConflicts_(sh, rowNum, changed, base) {
+  const out = [];
+  if (!changed || !changed.length || !base) return out;
+  changed.forEach(f => {
+    if (!COL[f] || base[f] === undefined) return;
+    const cur = normVal_(sh.getRange(rowNum, COL[f]).getValue());
+    if (cur !== normVal_(base[f])) out.push({ field: f, current: cur });
+  });
+  return out;
+}
+
+// 追加情報の行が、読み込み後に他の人に更新されていれば競合（1秒未満の差は誤差として無視）
+function extraConflict_(vals, id, baseUpdatedAt) {
+  const headers = vals[0];
+  const idCol = headers.indexOf('id');
+  const uCol = headers.indexOf('updatedAt');
+  for (let i = 1; i < vals.length; i++) {
+    if (vals[i][idCol] == id) {
+      const cur = vals[i][uCol];
+      if (!cur) return null;
+      const curT = new Date(cur).getTime();
+      const baseT = baseUpdatedAt ? new Date(baseUpdatedAt).getTime() : 0;
+      if (!baseT || Math.abs(curT - baseT) >= 1000) return { updatedAt: new Date(cur) };
+      return null;
+    }
+  }
+  return null;
+}
+
+// 保存前の競合チェック（読み取りのみ・書き込みなし）
+function dealConflictCheck(data) {
+  try {
+    const result = { core: [], extra: null };
+    if (data.branch && data.rowNum && data.changedCore && data.changedCore.length) {
+      const sh = sheet(data.branch);
+      if (sh) {
+        const r = resolveRowNum_(sh, data.rowNum, data.origDealNo);
+        if (r > 0) result.core = coreConflicts_(sh, r, data.changedCore, data.baseCore);
+      }
+    }
+    if (data.extraId && data.baseUpdatedAt !== undefined) {
+      const vals = ensureExtraSheet_().getDataRange().getValues();
+      result.extra = extraConflict_(vals, data.extraId, data.baseUpdatedAt);
+    }
+    return makeRes(result);
+  } catch (err) {
+    return makeErr('dealConflictCheck error: ' + err.toString());
+  }
+}
 
 function dealCoreCreate(data) {
   const lock = LockService.getScriptLock();
@@ -312,8 +389,16 @@ function dealCoreUpdate(data) {
       }
     }
 
+    // 競合検知：自分が変更した項目が、読み込み後に他の人に変更されていないか確認
+    if (!data.force && data.changedCore) {
+      const cc = coreConflicts_(sh, rowNum, data.changedCore, data.baseCore);
+      if (cc.length) return makeRes({ core: cc }, 'conflict');
+    }
+
     EDITABLE_CORE_FIELDS.forEach(f => {
       if (data[f] === undefined) return;
+      // changedCore が指定されている場合は、変更した項目だけ書き込む（他の人の編集を上書きしない）
+      if (data.changedCore && data.changedCore.indexOf(f) < 0) return;
       const colIdx = COL[f];
       if (!colIdx) return;
       sh.getRange(rowNum, colIdx).setValue(data[f]);
@@ -362,6 +447,12 @@ function dealExtraUpsert(data) {
     const vals = sh.getDataRange().getValues();
     const headers = vals[0];
     const idCol = headers.indexOf('id');
+
+    // 競合検知：読み込み後に他の人が更新していないか確認
+    if (!data.force && data.baseUpdatedAt !== undefined) {
+      const ec = extraConflict_(vals, data.id, data.baseUpdatedAt);
+      if (ec) return makeRes({ extra: ec }, 'conflict');
+    }
 
     // 工事日重複チェック（他案件の追加情報のみが対象。失注は除外）
     const conflicts = [];

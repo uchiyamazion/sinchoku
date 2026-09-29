@@ -179,6 +179,9 @@
   .badge.b-red{ background:var(--red-soft); color:var(--red); }
   .badge.b-grey{ background:var(--grey-soft); color:var(--ink-soft); }
   .amt{ font-family:'IBM Plex Mono',monospace; font-weight:600; color:var(--ink); font-size:12px; }
+  .next-action{ font-size:10.5px; margin-top:6px; color:var(--ink-soft); display:flex; gap:4px; align-items:center; }
+  .next-action.overdue{ color:var(--red); font-weight:700; }
+  .next-action.today{ color:var(--amber); font-weight:700; }
   .conflict-flag{ color:var(--red); font-weight:700; font-size:10.5px; margin-top:6px; display:flex; align-items:center; gap:4px; }
   .updated-at{ color:var(--grey); font-size:9.5px; margin-top:5px; }
   .updated-flag{
@@ -452,6 +455,11 @@
         <input type="checkbox" id="statusUnreadOnlyCheck"> 現在状況が更新された案件のみ
       </label>
     </div>
+    <div class="filter-field filter-field-checkbox">
+      <label class="checkbox-label">
+        <input type="checkbox" id="followOnlyCheck"> 要フォロー（停滞・期限超過）のみ
+      </label>
+    </div>
   </div>
   <div class="filter-panel-actions">
     <button class="btn btn-ghost" id="btnReset">条件をリセット</button>
@@ -579,6 +587,8 @@
         </select>
       </div>
       <div class="field"><label>見積提出日</label><input type="date" id="f-quoteDate"></div>
+      <div class="field"><label>次回アクション期限</label><input type="date" id="f-nextActionDate"></div>
+      <div class="field full"><label>次回アクション内容</label><input id="f-nextActionNote" placeholder="例：再見積提出・電話フォロー"></div>
       <div class="field full" id="lostReasonField"><label>失注理由</label><textarea id="f-lostReason"></textarea></div>
       <div class="field full"><label>受注の決め手</label><textarea id="f-winFactor"></textarea></div>
       <div class="field"><label>工事開始日</label><input type="date" id="f-constructionStart"></div>
@@ -617,6 +627,8 @@ let minAmountVal = '';
 let maxAmountVal = '';
 let conflictOnlyVal = false;
 let unreadOnlyVal = false;
+let followOnlyVal = false;
+const STALE_DAYS = 14; // 見積提出済のまま動きがない日数の目安
 
 // ==== 仕入・入金の見込み ====
 function normMonth(v){
@@ -960,6 +972,37 @@ function elapsedBadge(deal){
   return `<span class="badge ${cls}">経過${days}日</span>`;
 }
 
+// ==== 停滞アラート・次回アクション ====
+function todayStart(){ const t = new Date(); t.setHours(0,0,0,0); return t; }
+// 見積提出済のまま、最後の更新（または見積提出日）から STALE_DAYS 日以上動きがない場合の日数
+function staleDaysOf(d){
+  if(effStatus(d) !== '見積中') return null;
+  const times = [d.updatedAt, d.quoteDate].map(v => v ? new Date(v).getTime() : NaN).filter(t => !isNaN(t));
+  if(!times.length) return null;
+  const days = Math.floor((todayStart().getTime() - new Date(Math.max(...times)).setHours(0,0,0,0)) / 86400000);
+  return days >= STALE_DAYS ? days : null;
+}
+// 次回アクション期限：'overdue' | 'today' | 'soon' | ''
+function nextActionState(d){
+  if(!d.nextActionDate) return '';
+  const st = effStatus(d);
+  if(st === '完了' || st === '失注') return '';
+  const t = new Date(d.nextActionDate); if(isNaN(t.getTime())) return '';
+  const diff = Math.floor((t.setHours(0,0,0,0) - todayStart().getTime()) / 86400000);
+  return diff < 0 ? 'overdue' : (diff === 0 ? 'today' : 'soon');
+}
+function needsFollow(d){ return staleDaysOf(d) !== null || nextActionState(d) === 'overdue' || nextActionState(d) === 'today'; }
+function staleBadge(d){
+  const n = staleDaysOf(d);
+  return n === null ? '' : `<span class="badge b-red">⏸ 停滞${n}日</span>`;
+}
+function nextActionHtml(d){
+  const s = nextActionState(d);
+  if(!d.nextActionDate) return '';
+  const label = s === 'overdue' ? '期限超過' : (s === 'today' ? '本日' : '次');
+  return `<div class="next-action ${s}">▶ ${label} ${fmtDate(d.nextActionDate)}${d.nextActionNote ? '　' + escapeHtml(d.nextActionNote) : ''}</div>`;
+}
+
 // 優先順位：手動ステータス ＞ ランクS(自動で受注) ＞ 見積提出日あり(自動で見積提出済) ＞ 未設定
 // 優先順位：手動ステータス ＞ 確定金額あり(自動で完了) ＞ ランクS(自動で受注)
 //          ＞ 見積金額 or 見積提出日あり(自動で見積提出済) ＞ 未設定
@@ -1059,7 +1102,7 @@ function populateFilters(){
 function updateFilterCountBadge(){
   const count = [
     branchFilterVal, assigneeFilterVal, rankFilterVal, sourceFilterVal, orderMonthFilterVal,
-    minAmountVal, maxAmountVal, excludeVal, conflictOnlyVal ? 'x' : '', unreadOnlyVal ? 'x' : ''
+    minAmountVal, maxAmountVal, excludeVal, conflictOnlyVal ? 'x' : '', unreadOnlyVal ? 'x' : '', followOnlyVal ? 'x' : ''
   ].filter(Boolean).length;
   const badge = document.getElementById('filterCount');
   if(count > 0){
@@ -1076,6 +1119,7 @@ function render(){
   const { conflictIds, pairs } = findConflicts();
   if(conflictOnlyVal) visible = visible.filter(d => conflictIds.has(d.id));
   if(unreadOnlyVal) visible = visible.filter(d => unreadInfo[d.id]);
+  if(followOnlyVal) visible = visible.filter(needsFollow);
 
   const banner = document.getElementById('conflictBanner');
   if(pairs.length){
@@ -1205,11 +1249,13 @@ function renderCard(d, hasConflict, justUpdated){
       ${d.rank ? `<span class="badge b-grey">${escapeHtml(d.rank)}</span>` : ''}
       ${profitRateBadge(d)}
       ${elapsedBadge(d)}
+      ${staleBadge(d)}
     </div>
     <div class="row mono" style="color:var(--ink-soft); font-size:10.5px;">
       <span>${dateLine}</span>
       ${d.assignee ? `<span>${escapeHtml(d.assignee)}</span>` : ''}
     </div>
+    ${nextActionHtml(d)}
     ${purchaseLineHtml(d)}
     ${statusBlockHtml(d, uInfo)}
     ${d.updatedAt ? `<div class="updated-at mono">更新 ${fmtDateTime(d.updatedAt)}</div>` : ''}
@@ -1230,6 +1276,7 @@ document.getElementById('sourceFilter').addEventListener('change', e => { source
 document.getElementById('orderMonthFilter').addEventListener('change', e => { orderMonthFilterVal = e.target.value; render(); });
 document.getElementById('conflictOnlyCheck').addEventListener('change', e => { conflictOnlyVal = e.target.checked; render(); });
 document.getElementById('statusUnreadOnlyCheck').addEventListener('change', e => { unreadOnlyVal = e.target.checked; render(); });
+document.getElementById('followOnlyCheck').addEventListener('change', e => { followOnlyVal = e.target.checked; render(); });
 let amountDebounce;
 function onAmountInput(){
   clearTimeout(amountDebounce);
@@ -1277,12 +1324,22 @@ document.querySelectorAll('.col-body').forEach(body => {
       if(factor === null) return;
       deal.winFactor = factor;
     }
+    // 他の人が先に更新していないか確認（競合時は確認ダイアログ）
+    let dropForce = false;
+    const chk = await gasPost('deal_conflict_check', { extraId: deal.id, baseUpdatedAt: deal.updatedAt || '' });
+    if(chk.status === 'success' && chk.data.extra){
+      if(!confirm('他の人がこの案件を ' + fmtDateTime(chk.data.extra.updatedAt) + ' に更新しています。\nこのままステータスを変更（上書き）しますか？')){
+        await loadDeals();
+        return;
+      }
+      dropForce = true;
+    }
     deal.status = newStatus;
     render();
     if(newStatus === '受注' || newStatus === '完了'){
       celebrateStatusChange(deal);
     }
-    const res = await gasPost('deal_extra_upsert', deal);
+    const res = await gasPost('deal_extra_upsert', Object.assign({}, deal, { baseUpdatedAt: deal.updatedAt || '', force: dropForce }));
     if(res.status === 'success' && res.data.conflicts && res.data.conflicts.length){
       alert('注意：工事日が以下の案件と重複しています。\n' +
         res.data.conflicts.map(c => `・${c.id}（${fmtDate(c.constructionStart)}〜${fmtDate(c.constructionEnd)}）`).join('\n'));
@@ -1300,9 +1357,15 @@ document.getElementById('toggleLost').addEventListener('click', () => {
 const overlay = document.getElementById('overlay');
 const BRANCHES = ['営業部','営業部（ビルメン）','１課','２課','３課','函館','旭川'];
 const coreFields = ['dealNo','assignee','customerName','siteName','projectName','summary','occurredDate','rank','quoteAmount','confirmedAmount','expectedOrderMonth','profitRate','currentStatus','pendingIssue'];
-const editFields = ['status','quoteDate','lostReason','winFactor','constructionStart','constructionEnd','supplier','purchaseDate','purchaseAmount','billingMonth','paymentTerms','receiptMonth'];
+const editFields = ['status','quoteDate','lostReason','winFactor','constructionStart','constructionEnd','supplier','purchaseDate','purchaseAmount','billingMonth','paymentTerms','receiptMonth','nextActionDate','nextActionNote'];
 let currentDeal = null;
 let isNewMode = false;
+let modalInitial = {};
+function formSnapshot(){
+  const s = {};
+  coreFields.forEach(f => { const el = document.getElementById('c-' + f); if(el) s[f] = el.value; });
+  return s;
+}
 
 function clearForm(){
   coreFields.forEach(f => { const el = document.getElementById('c-' + f); if(el) el.value = ''; });
@@ -1346,7 +1409,7 @@ function openModal(deal){
 
   editFields.forEach(f => {
     const el = document.getElementById('f-' + f);
-    if(f === 'quoteDate' || f === 'constructionStart' || f === 'constructionEnd' || f === 'purchaseDate'){
+    if(f === 'quoteDate' || f === 'nextActionDate' || f === 'constructionStart' || f === 'constructionEnd' || f === 'purchaseDate'){
       el.value = toDateInputVal(deal[f]);
     } else if(f === 'billingMonth' || f === 'receiptMonth'){
       el.value = normMonth(deal[f]);
@@ -1356,6 +1419,7 @@ function openModal(deal){
   });
 
   updatePayMonthHint();
+  modalInitial = formSnapshot();
 
   // 現在状況の更新があれば、前回確認時の内容を表示してから既読にする
   const uInfo = unreadInfo[deal.id];
@@ -1376,6 +1440,14 @@ function openModal(deal){
 }
 function closeModal(){ overlay.classList.remove('open'); currentDeal = null; isNewMode = false; }
 
+const FIELD_LABELS = { dealNo:'案件No', assignee:'担当者', customerName:'顧客名', siteName:'現場名', projectName:'案件名', summary:'概要', occurredDate:'発生日', rank:'ランク', quoteAmount:'見積金額', confirmedAmount:'確定金額', expectedOrderMonth:'受注予定月', profitRate:'粗利率', currentStatus:'現在状況', pendingIssue:'懸案事項' };
+function conflictMessage(core, extra){
+  const lines = [];
+  if(core && core.length) lines.push('基本情報：' + core.map(c => FIELD_LABELS[c.field] || c.field).join('、'));
+  if(extra) lines.push('進捗情報（ステータス・工事日・仕入など）：' + fmtDateTime(extra.updatedAt) + ' に更新');
+  return '他の人がこの案件を先に更新しています。\n\n' + lines.join('\n') + '\n\nこのまま上書き保存しますか？\n（キャンセルすると入力内容は残るので、控えてから閉じて再読み込みできます）';
+}
+
 document.getElementById('btnNew').addEventListener('click', openNewModal);
 document.getElementById('f-purchaseDate').addEventListener('input', updatePayMonthHint);
 document.getElementById('f-billingMonth').addEventListener('input', updatePayMonthHint);
@@ -1389,7 +1461,7 @@ document.getElementById('btnCloseFilters').addEventListener('click', () => {
 
 document.getElementById('btnReset').addEventListener('click', () => {
   branchFilterVal = ''; assigneeFilterVal = ''; rankFilterVal = ''; sourceFilterVal = '';
-  orderMonthFilterVal = ''; minAmountVal = ''; maxAmountVal = ''; conflictOnlyVal = false; unreadOnlyVal = false;
+  orderMonthFilterVal = ''; minAmountVal = ''; maxAmountVal = ''; conflictOnlyVal = false; unreadOnlyVal = false; followOnlyVal = false;
   searchVal = ''; excludeVal = ''; sortSelectVal = 'date';
 
   document.getElementById('branchFilter').value = '';
@@ -1401,6 +1473,7 @@ document.getElementById('btnReset').addEventListener('click', () => {
   document.getElementById('maxAmount').value = '';
   document.getElementById('conflictOnlyCheck').checked = false;
   document.getElementById('statusUnreadOnlyCheck').checked = false;
+  document.getElementById('followOnlyCheck').checked = false;
   document.getElementById('searchBox').value = '';
   document.getElementById('excludeBox').value = '';
   document.getElementById('sortSelect').value = 'date';
@@ -1442,6 +1515,26 @@ document.getElementById('btnSave').addEventListener('click', async () => {
     const coreData = { id, branch: currentDeal.branch, rowNum: currentDeal.rowNum, origDealNo: origDealNo };
     coreFields.forEach(f => { coreData[f] = document.getElementById('c-' + f).value; });
 
+    // 自分が変更した基本情報の項目と、読み込み時の値（競合検知用）
+    const nowSnap = formSnapshot();
+    coreData.changedCore = coreFields.filter(f => nowSnap[f] !== modalInitial[f]);
+    coreData.baseCore = {};
+    coreData.changedCore.forEach(f => { coreData.baseCore[f] = currentDeal[f]; });
+    const baseUpdatedAt = currentDeal.updatedAt || '';
+
+    // 保存前に、他の人の更新と競合していないか確認
+    let force = false;
+    const chk = await gasPost('deal_conflict_check', {
+      branch: currentDeal.branch, rowNum: currentDeal.rowNum, origDealNo,
+      changedCore: coreData.changedCore, baseCore: coreData.baseCore,
+      extraId: id, baseUpdatedAt
+    });
+    if(chk.status === 'success' && ((chk.data.core && chk.data.core.length) || chk.data.extra)){
+      if(!confirm(conflictMessage(chk.data.core, chk.data.extra))) return;
+      force = true;
+    }
+    coreData.force = force;
+
     const coreRes = await gasPost('deal_core_update', coreData);
     if(coreRes.status !== 'success'){ alert('基本情報の保存に失敗しました：' + coreRes.data); return; }
 
@@ -1451,7 +1544,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
     setSeenText(id, savedStatusText);
     if(newId !== id) setSeenText(newId, savedStatusText);
 
-    const extraData = { id: newId };
+    const extraData = { id: newId, baseUpdatedAt, force };
     editFields.forEach(f => { extraData[f] = document.getElementById('f-' + f).value; });
 
     const prevStatus = effStatus(currentDeal);
