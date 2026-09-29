@@ -1582,8 +1582,41 @@ function snapshotKey(d){
   return JSON.stringify(rest);
 }
 
+// ==== 前回取得したデータをブラウザに保存し、次回起動時に即表示する ====
+const DEALS_CACHE_KEY = 'sinchoku_deals_cache_v1';
+function loadDealsCache(){
+  try{
+    const raw = localStorage.getItem(DEALS_CACHE_KEY);
+    if(!raw) return null;
+    const obj = JSON.parse(raw);
+    return (obj && Array.isArray(obj.data) && obj.data.length) ? obj : null;
+  }catch(e){ return null; }
+}
+function saveDealsCache(data){
+  try{ localStorage.setItem(DEALS_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), data })); }catch(e){}
+}
+function applyDealsToView(list){
+  deals = list;
+  // GAS側が未更新（次回アクション列が返ってこない）の間は、保存されない入力欄を隠す
+  const gasReady = !deals.length || ('nextActionDate' in deals[0]);
+  ['fw-nextActionDate','fw-nextActionNote'].forEach(i => { document.getElementById(i).style.display = gasReady ? '' : 'none'; });
+  computeUnread();
+  populateFilters();
+  render();
+}
+
 async function loadDeals(){
-  const showOverlay = isFirstLoad;
+  const cachedObj = isFirstLoad ? loadDealsCache() : null;
+  const showOverlay = isFirstLoad && !cachedObj;
+  if(cachedObj){
+    // キャッシュを先に表示し、裏で最新を取得して差し替える
+    applyDealsToView(dedupeByDealNo(cachedObj.data));
+    loadingOverlay.classList.add('hidden');
+    document.getElementById('board').style.display = 'flex';
+    const c = new Date(cachedObj.savedAt);
+    document.getElementById('lastUpdated').textContent =
+      '前回表示 ' + String(c.getHours()).padStart(2,'0') + ':' + String(c.getMinutes()).padStart(2,'0') + '（最新を取得中…）';
+  }
   if(showOverlay){
     loadingOverlay.classList.remove('hidden');
     document.getElementById('board').style.display = 'none';
@@ -1615,13 +1648,8 @@ async function loadDeals(){
     prevDealsMap = {};
     dedupedData.forEach(d => { prevDealsMap[d.id] = snapshotKey(d); });
 
-    deals = dedupedData;
-    // GAS側が未更新（次回アクション列が返ってこない）の間は、保存されない入力欄を隠す
-    const gasReady = !deals.length || ('nextActionDate' in deals[0]);
-    ['fw-nextActionDate','fw-nextActionNote'].forEach(i => { document.getElementById(i).style.display = gasReady ? '' : 'none'; });
-    computeUnread();
-    populateFilters();
-    render();
+    saveDealsCache(res.data);
+    applyDealsToView(dedupedData);
     const now = new Date();
     document.getElementById('lastUpdated').textContent =
       '最終更新 ' + String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0') + ':' + String(now.getSeconds()).padStart(2,'0');
@@ -1632,10 +1660,11 @@ async function loadDeals(){
     }
   } else {
     console.error(res.data);
+    if(cachedObj) document.getElementById('lastUpdated').textContent = '最新の取得に失敗（前回のデータを表示中）';
     if(showOverlay) loadingText.textContent = '読み込みに失敗しました：' + res.data;
   }
 
-  if(showOverlay){
+  if(showOverlay || cachedObj){
     loadingOverlay.classList.add('hidden');
     document.getElementById('board').style.display = 'flex';
     isFirstLoad = false;

@@ -99,13 +99,17 @@ function doPost(e) {
     const action = body.action;
     const payload = body.payload || body;
 
+    let result;
     switch (action) {
-      case 'deal_extra_upsert': return dealExtraUpsert(payload.data || payload);
-      case 'deal_core_update':  return dealCoreUpdate(payload.data || payload);
-      case 'deal_core_create':  return dealCoreCreate(payload.data || payload);
+      case 'deal_extra_upsert': result = dealExtraUpsert(payload.data || payload); break;
+      case 'deal_core_update':  result = dealCoreUpdate(payload.data || payload); break;
+      case 'deal_core_create':  result = dealCoreCreate(payload.data || payload); break;
       case 'deal_conflict_check': return dealConflictCheck(payload.data || payload);
       default:                  return makeErr('不明なaction: ' + action);
     }
+    // 書き込み系の処理が終わったら、一覧キャッシュを破棄する（次の読み込みで最新を取り直す）
+    invalidateDealCache_();
+    return result;
   } catch (err) {
     return makeErr(err.toString());
   }
@@ -193,7 +197,54 @@ function calcElapsedDays_(baseDate, status) {
   return Math.floor(diffMs / 86400000);
 }
 
+// ════════════════════════════════════════════════
+// 一覧のキャッシュ（CacheService）
+// 1キー100KBの上限があるため、JSON文字列を分割して保存する
+// ════════════════════════════════════════════════
+
+const DEAL_CACHE_TTL_SEC = 90;     // キャッシュの有効秒数（元シートを直接編集した場合の反映遅れの上限）
+const DEAL_CACHE_CHUNK = 30000;    // 1チャンクあたりの文字数（日本語でも100KB未満に収める）
+
+function getDealCache_() {
+  try {
+    const c = CacheService.getScriptCache();
+    const n = Number(c.get('dl_n'));
+    if (!n) return null;
+    const keys = [];
+    for (let i = 0; i < n; i++) keys.push('dl_' + i);
+    const got = c.getAll(keys);
+    let out = '';
+    for (let i = 0; i < n; i++) {
+      if (got['dl_' + i] === undefined || got['dl_' + i] === null) return null;
+      out += got['dl_' + i];
+    }
+    return out;
+  } catch (err) { return null; }
+}
+
+function putDealCache_(str) {
+  try {
+    const c = CacheService.getScriptCache();
+    const obj = {};
+    let n = 0;
+    for (let i = 0; i < str.length; i += DEAL_CACHE_CHUNK) {
+      obj['dl_' + n] = str.substring(i, i + DEAL_CACHE_CHUNK);
+      n++;
+    }
+    obj['dl_n'] = String(n);
+    c.putAll(obj, DEAL_CACHE_TTL_SEC);
+  } catch (err) { /* キャッシュに失敗しても通常動作に影響させない */ }
+}
+
+function invalidateDealCache_() {
+  try { CacheService.getScriptCache().remove('dl_n'); } catch (err) {}
+}
+
 function dealList() {
+  const cachedStr = getDealCache_();
+  if (cachedStr) {
+    return ContentService.createTextOutput(cachedStr).setMimeType(ContentService.MimeType.JSON);
+  }
   const sources = readAllSources_();
   const extraMap = readExtraMap_();
 
@@ -221,7 +272,9 @@ function dealList() {
     });
   });
 
-  return makeRes(merged);
+  const payloadStr = JSON.stringify({ status: 'success', data: merged });
+  putDealCache_(payloadStr);
+  return ContentService.createTextOutput(payloadStr).setMimeType(ContentService.MimeType.JSON);
 }
 
 // ════════════════════════════════════════════════
