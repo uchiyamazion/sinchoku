@@ -875,8 +875,8 @@ function renderTargetSection(){
   const title = `🎯 部署別の目標達成（${anaFy}年度 ${anaHalf}）`;
 
   if(anaEditTarget){
-    const man = v => (v === null ? '' : Math.round(v / 10000));
-    box.innerHTML = `<div class="ana-h" style="margin-top:4px">${anaFy}年度の目標を設定（単位：万円・空欄＝未設定）</div>
+    const man = v => (v === null ? '' : Math.round(v / 1000));
+    box.innerHTML = `<div class="ana-h" style="margin-top:4px">${anaFy}年度の目標を設定（単位：千円・空欄＝未設定）</div>
       <div class="cash-table-wrap"><table class="cash-table"><thead><tr><th>部署</th><th>上期（4〜9月）</th><th>下期（10〜3月）</th></tr></thead><tbody>` +
       branches.map((b, i) => `<tr><td>${escapeHtml(b)}</td>
         <td><input class="tg-input" type="number" inputmode="numeric" id="tg-${i}-up" value="${man(targetOf(b, anaFy, '上期'))}"></td>
@@ -929,7 +929,7 @@ async function saveTargets(){
   branchList().forEach((b, i) => {
     [['上期', 'up'], ['下期', 'down']].forEach(([half, id]) => {
       const v = document.getElementById(`tg-${i}-${id}`).value.trim();
-      items.push({ half, branch: b, amount: v === '' ? '' : Math.round(Number(v) * 10000) });
+      items.push({ half, branch: b, amount: v === '' ? '' : Math.round(Number(v) * 1000) });
     });
   });
   try{
