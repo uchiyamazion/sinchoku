@@ -199,7 +199,10 @@
   .mascot .m-arm{ transition:transform .2s; transform-box:fill-box; }
   .mascot .m-arm-l{ transform:rotate(-25deg); transform-origin:right center; } .mascot .m-arm-r{ transform:rotate(25deg); transform-origin:left center; }
   .mascot.happy .m-arm-l{ transform:rotate(62deg); } .mascot.happy .m-arm-r{ transform:rotate(-62deg); }
-  .mascot .m-open, .mascot .m-wavy, .mascot .m-sweat, .mascot .m-eyes-happy{ display:none; }
+  .mascot .m-open, .mascot .m-wavy, .mascot .m-sweat, .mascot .m-eyes-happy, .mascot .m-eyes-smug, .mascot .m-smirk{ display:none; }
+  .mascot.smug .m-eyes-smug, .mascot.smug .m-smirk{ display:inline; } .mascot.smug .m-eyes, .mascot.smug .m-smile{ display:none; }
+  .mascot.smug svg{ animation:m-tilt 2.4s ease-in-out infinite; }
+  @keyframes m-tilt{ 0%,100%{ transform:rotate(0);} 50%{ transform:rotate(-6deg) translateY(-3px);} }
   .mascot.happy .m-open, .mascot.happy .m-eyes-happy{ display:inline; } .mascot.happy .m-smile, .mascot.happy .m-eyes{ display:none; }
   .mascot.worry .m-wavy, .mascot.worry .m-sweat{ display:inline; } .mascot.worry .m-smile{ display:none; }
   .mascot.worry svg{ animation:m-shake .35s ease-in-out 4; }
@@ -1283,7 +1286,7 @@ function celebrateStatusChange(deal){
   const tier = getDealTier(amountOf(deal));
   launchConfetti(tier);
   if(tier.banner) showBigDealBanner(deal, tier);
-  mascotSay(tier.banner ? '大きな案件、おめでとう〜！！🎉' : '受注おめでとう！🎉', 'happy', 6000);
+  mascotSay(tier.banner ? 'えっ、でかっ！…やるじゃん🎉' : 'お、受注じゃん！やるね〜🎉', 'happy', 6000);
 }
 
 
@@ -1830,7 +1833,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
       editFields.forEach(f => { extraData[f] = document.getElementById('f-' + f).value; });
       const extraRes = await gasPost('deal_extra_upsert', extraData);
       if(extraRes.status !== 'success'){ alert('追加情報の保存に失敗しました：' + extraRes.data); }
-      mascotSay('新しい案件、登録したよ！🌱', 'happy');
+      mascotSay('新規案件、ゲット？ちゃんと追いかけなよ〜', 'happy');
       await loadDeals();
       closeModal();
       return;
@@ -2071,7 +2074,7 @@ function celebrateMilestone({ m, b, g }){
   const who = b || '全体';
   launchConfetti(m >= 100 ? DEAL_TIERS[0] : (m >= 80 ? DEAL_TIERS[2] : BASE_TIER));
   showBigDealBanner({ quoteAmount: g.actual, siteName: `${who}の${g.half}目標` }, { emoji: m >= 100 ? '🏆' : '🎯', label: m >= 100 ? '目標達成！！' : `目標${m}%突破！` });
-  mascotSay(m >= 100 ? `${who}、目標達成〜！！みんなすごい🎉` : (m >= 80 ? `${who}、80%突破！あと一息だよ✨` : `${who}、目標の半分まで来たよ！`), 'happy', 7000);
+  mascotSay(m >= 100 ? `${who}、目標達成！…まあ、当然だよね？🎉` : (m >= 80 ? `${who}、80%。あとちょっと、サボらないでよ？😏` : `${who}、半分まで来たね。ここからが本番だよ😏`), 'happy', 7000);
 }
 
 // 応援キャラ「しんちょくん」
@@ -2091,48 +2094,51 @@ function mascotInit(){
       <ellipse cx="40" cy="49" rx="28" ry="23" fill="#fff" stroke="#6B5555" stroke-width="2.2"/>
       <g class="m-eyes"><circle cx="30.5" cy="46" r="3" fill="#4a3b3b"/><circle cx="49.5" cy="46" r="3" fill="#4a3b3b"/>
         <circle cx="31.5" cy="44.8" r="1" fill="#fff"/><circle cx="50.5" cy="44.8" r="1" fill="#fff"/></g>
+      <g class="m-eyes-smug"><path d="M26.5 46 L34.5 46" stroke="#4a3b3b" stroke-width="2.4" stroke-linecap="round"/><path d="M45.5 46 L53.5 46" stroke="#4a3b3b" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M27 44.5 Q30.5 41.5 34 44.5" fill="#fff" stroke="#6B5555" stroke-width="0"/></g>
       <g class="m-eyes-happy"><path d="M27 47 Q30.5 41.5 34 47" fill="none" stroke="#4a3b3b" stroke-width="2.2" stroke-linecap="round"/>
         <path d="M46 47 Q49.5 41.5 53 47" fill="none" stroke="#4a3b3b" stroke-width="2.2" stroke-linecap="round"/></g>
       <ellipse cx="23.5" cy="54" rx="5" ry="3.2" fill="#F9BCC8"/><ellipse cx="56.5" cy="54" rx="5" ry="3.2" fill="#F9BCC8"/>
       <path class="m-smile" d="M37 53.5 Q38.5 56 40 53.8 Q41.5 56 43 53.5" stroke="#4a3b3b" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
       <path class="m-open" d="M35.5 52 Q40 60.5 44.5 52 Z" fill="#F08A9B" stroke="#4a3b3b" stroke-width="1.7" stroke-linejoin="round"/>
+      <path class="m-smirk" d="M36 54 Q41 57.5 46 52" stroke="#4a3b3b" fill="none" stroke-width="2" stroke-linecap="round"/>
       <path class="m-wavy" d="M36 55 Q38 52.5 40 55 Q42 57.5 44 55" stroke="#4a3b3b" fill="none" stroke-width="1.9" stroke-linecap="round"/>
       <path class="m-sweat" d="M58 33 q-4 6 0 8.5 q4 -2.5 0 -8.5z" fill="#9FD3F2" stroke="#6B9FBF" stroke-width="1"/>
     </svg>`;
   document.body.appendChild(mascotEl);
   mascotEl.style.display = mascotOff() ? 'none' : '';
 }
-const MASCOT_TALK = ['今日もコツコツいこう🌱', '入力するたびに、ゲージが育つよ！', '気になる案件、次のアクションは決めた？', '空欄をひとつ埋めるだけでも、えらい✨', 'ちょっと休憩も大事だよ〜☕'];
-const SAVE_MSGS = ['保存したよ！えらい✨', '記録ありがとう〜！', 'ナイス入力！', 'きれいに入ったよ🌷'];
+const MASCOT_TALK = ['まだ空欄あるでしょ？見逃さないよ😏', '次のアクション決めてない案件、あるよね？', 'ボクのゲージ、まだ満たせないの〜？', 'え、その案件まだそのまま？ふーん…😏', 'やればできる人でしょ？知ってるよ', '入力サボってると、ボク拗ねるよ？'];
+const SAVE_MSGS = ['お、やるじゃん。えらいえらい😏', 'ふーん、ちゃんと入力できるんだ', 'やっと入れたね〜。ナイス！', 'はい保存完了。やればできるじゃん'];
 function mascotSay(text, mood, ms){
   if(mascotOff()) return;
   mascotInit();
   const b = document.getElementById('mBubble');
   b.textContent = text;
   b.classList.add('show');
-  mascotEl.classList.remove('happy', 'worry'); void mascotEl.offsetWidth;
-  if(mood === 'happy' || mood === 'worry') mascotEl.classList.add(mood);
+  mascotEl.classList.remove('happy', 'worry', 'smug'); void mascotEl.offsetWidth;
+  if(mood === 'happy' || mood === 'worry' || mood === 'smug') mascotEl.classList.add(mood);
   clearTimeout(mascotTimer);
-  mascotTimer = setTimeout(() => { b.classList.remove('show'); mascotEl.classList.remove('happy', 'worry'); }, ms || 5200);
+  mascotTimer = setTimeout(() => { b.classList.remove('show'); mascotEl.classList.remove('happy', 'worry', 'smug'); }, ms || 5200);
 }
 function toggleMascot(){
   lsSet(MASCOT_OFF_KEY, mascotOff() ? '0' : '1');
   mascotInit();
   mascotEl.style.display = mascotOff() ? 'none' : '';
-  if(!mascotOff()) mascotSay('よろしくね！🌱', 'happy');
+  if(!mascotOff()) mascotSay('お、戻ってきたね。さみしかったんだけど😏', 'happy');
   renderFunBar();
 }
 function mascotGreet(){
   if(greeted) return;
   greeted = true;
   const hr = new Date().getHours();
-  const hello = hr < 11 ? 'おはよう！' : (hr < 18 ? 'お疲れさま！' : '遅くまでお疲れさま！');
+  const hello = hr < 11 ? 'おはよ。' : (hr < 18 ? 'お疲れ〜。' : 'まだいたの？遅くまでお疲れ。');
   const c = dailyCounts();
-  const msg = c.overdue ? `期限が過ぎてる案件が${c.overdue}件あるよ…！見てみよう`
-    : c.today ? `今日が期限の案件が${c.today}件！ファイト✨`
-    : c.stale ? `止まってる案件が${c.stale}件。声をかけてみる？`
-    : '今日もいい感じだよ🌷';
-  mascotSay(hello + msg, c.overdue ? 'worry' : 'happy', 6500);
+  const msg = c.overdue ? `期限切れが${c.overdue}件。見て見ぬふり、してないよね？😏`
+    : c.today ? `今日が期限の案件が${c.today}件。余裕だよね？…ほんとに？`
+    : c.stale ? `${c.stale}件、ほったらかしだよ。お客さん待ってるかもよ〜`
+    : 'おっ、今日は優秀じゃん。明日も続くかな？';
+  mascotSay(hello + msg, (c.overdue || c.stale) ? 'smug' : 'happy', 6500);
 }
 // 保存したあとのひとこと（入力が増えたことをほめる）
 function funAfterSave(before, changes, wonNow){
@@ -2140,9 +2146,9 @@ function funAfterSave(before, changes, wonNow){
   const a = completeness(Object.assign({}, before, changes)), b = completeness(before);
   if(a.done === a.total && b.done < b.total){
     launchConfetti(BASE_TIER);
-    mascotSay('入力ぜんぶ埋まった！ぴかぴか✨', 'happy', 6000);
+    mascotSay('全部埋めたの？…優秀すぎ。ちょっと悔しい✨', 'happy', 6000);
   } else if(a.done > b.done){
-    mascotSay(`${a.done - b.done}項目入力！あと${a.total - a.done}個で完璧（${a.missing[0]}など）`, 'happy');
+    mascotSay(`${a.done - b.done}項目入力したね。あと${a.total - a.done}個で完璧。${a.missing[0]}が空いてるの、気づいてるからね😏`, 'happy');
   } else {
     mascotSay(pickOne(SAVE_MSGS), 'happy');
   }
