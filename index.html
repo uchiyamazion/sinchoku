@@ -941,9 +941,7 @@ async function saveTargets(){
     anaEditTarget = false;
     renderAnalysis();
   }catch(e){
-    alert(e instanceof SyntaxError
-      ? '保存に失敗しました：GASからJSONではなくHTMLが返ってきました。\nGAS（Code.gs）の更新・新バージョンでの再デプロイ・承認を確認してください。'
-      : '保存に失敗しました：' + e);
+    alert('保存に失敗しました：' + (e && e.message ? e.message : e));
     btn.disabled = false; btn.textContent = '保存';
   }
 }
@@ -1091,16 +1089,26 @@ function statusBlockHtml(d, u){
 }
 let sortSelectVal = 'date';
 
+// GASの応答がJSONでない（HTMLのエラーページ等）場合は、ページ内の文言を含めたエラーにする
+function parseGasResponse(r){
+  return r.text().then(t => {
+    try{ return JSON.parse(t); }
+    catch(e){
+      const plain = t.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+      throw new Error('GASの応答がJSONではありません（HTTP ' + r.status + '）：' + plain);
+    }
+  });
+}
 function gasGet(action, params={}){
   const qs = new URLSearchParams({ action, ...params }).toString();
-  return fetch(`${WEBAPP_URL}?${qs}`).then(r => r.json());
+  return fetch(`${WEBAPP_URL}?${qs}`).then(parseGasResponse);
 }
 function gasPost(action, payload){
   return fetch(WEBAPP_URL, {
     method:'POST',
     headers:{ 'Content-Type':'text/plain;charset=utf-8' },
     body: JSON.stringify({ action, payload })
-  }).then(r => r.json());
+  }).then(parseGasResponse);
 }
 
 // 経過時間（＋Content-Lengthが取れれば%）を表示しながら取得する
