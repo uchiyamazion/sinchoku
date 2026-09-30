@@ -825,7 +825,7 @@ const BRANCH_ORDER = ['営業部', '営業部（ビルメン）', '１課', '２
 let anaFy = null;          // 年度（数値）または 'all'
 let anaHalf = '通期';      // '通期' | '上期' | '下期'
 let targets = [];          // [{fy, half, branch, amount}]
-let targetsOk = true;      // GAS側が未更新なら false
+let targetsOk = null;      // null=確認中 / true=利用可 / false=GAS側が未更新
 let anaEditTarget = false;
 
 function fyOf(dt){ return dt.getMonth() + 1 >= 4 ? dt.getFullYear() : dt.getFullYear() - 1; }
@@ -867,6 +867,7 @@ function fyOptions(){
 function renderTargetSection(){
   const box = document.getElementById('anaTarget');
   if(anaFy === 'all'){ box.innerHTML = ''; return; }
+  if(targetsOk === null){ box.innerHTML = '<div class="cash-note">目標を読み込み中…</div>'; return; }
   if(!targetsOk){
     box.innerHTML = '<div class="cash-note">目標金額の機能は、GAS（Code.gs）を更新すると使えるようになります。</div>';
     return;
@@ -940,7 +941,10 @@ async function saveTargets(){
     anaEditTarget = false;
     renderAnalysis();
   }catch(e){
-    alert('保存に失敗しました：' + e); btn.disabled = false; btn.textContent = '保存';
+    alert(e instanceof SyntaxError
+      ? '保存に失敗しました：GASからJSONではなくHTMLが返ってきました。\nGAS（Code.gs）の更新・新バージョンでの再デプロイ・承認を確認してください。'
+      : '保存に失敗しました：' + e);
+    btn.disabled = false; btn.textContent = '保存';
   }
 }
 
