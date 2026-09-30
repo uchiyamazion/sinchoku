@@ -87,6 +87,7 @@ function doGet(e) {
     const action = p.action || 'deal_list';
     switch (action) {
       case 'deal_list': return dealList();
+      case 'target_list': return targetList();
       default:          return makeErr('不明なaction: ' + action);
     }
   } catch (err) {
@@ -106,6 +107,7 @@ function doPost(e) {
       case 'deal_core_update':  result = dealCoreUpdate(payload.data || payload); break;
       case 'deal_core_create':  result = dealCoreCreate(payload.data || payload); break;
       case 'deal_conflict_check': return dealConflictCheck(payload.data || payload);
+      case 'target_save':       return targetSave(payload.data || payload);
       default:                  return makeErr('不明なaction: ' + action);
     }
     // 書き込み系の処理が終わったら、一覧キャッシュを破棄する（次の読み込みで最新を取り直す）
@@ -372,6 +374,83 @@ function dealConflictCheck(data) {
     return makeRes(result);
   } catch (err) {
     return makeErr('dealConflictCheck error: ' + err.toString());
+  }
+}
+
+// ════════════════════════════════════════════════
+// 目標金額（部署 × 年度 × 上期/下期）
+// 年度は4月始まり。上期＝4〜9月、下期＝10〜3月。金額は円で保存。
+// ════════════════════════════════════════════════
+
+const TARGET_SHEET_NAME = '目標設定';
+const TARGET_HEADERS = ['fy', 'half', 'branch', 'amount', 'updatedAt'];
+
+function ensureTargetSheet_() {
+  let sh = sheet(TARGET_SHEET_NAME);
+  if (!sh) {
+    sh = SS().insertSheet(TARGET_SHEET_NAME);
+    sh.appendRow(TARGET_HEADERS);
+  }
+  return sh;
+}
+
+function targetList() {
+  try {
+    const vals = ensureTargetSheet_().getDataRange().getValues();
+    const out = [];
+    for (let i = 1; i < vals.length; i++) {
+      const fy = Number(vals[i][0]);
+      const half = String(vals[i][1] || '');
+      const branch = String(vals[i][2] || '');
+      const amount = Number(vals[i][3]);
+      if (!fy || !half || !branch || isNaN(amount)) continue;
+      out.push({ fy: fy, half: half, branch: branch, amount: amount });
+    }
+    return makeRes(out);
+  } catch (err) {
+    return makeErr('targetList error: ' + err.toString());
+  }
+}
+
+// data: { fy: 2026, items: [{ half: '上期', branch: '１課', amount: 50000000 | '' }, ...] }
+// amount が空（''）の項目は削除扱い
+function targetSave(data) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const fy = Number(data.fy);
+    if (!fy || !data.items || !data.items.length) return makeErr('年度または目標が指定されていません');
+    const sh = ensureTargetSheet_();
+    const vals = sh.getDataRange().getValues();
+    const rowOf = {};
+    for (let i = 1; i < vals.length; i++) {
+      rowOf[Number(vals[i][0]) + '|' + vals[i][1] + '|' + vals[i][2]] = i + 1;
+    }
+    const delRows = [];
+    const now = new Date();
+    data.items.forEach(it => {
+      if (['上期', '下期'].indexOf(it.half) < 0 || !it.branch) return;
+      const key = fy + '|' + it.half + '|' + it.branch;
+      const empty = (it.amount === '' || it.amount === null || it.amount === undefined);
+      const r = rowOf[key];
+      if (empty) {
+        if (r) delRows.push(r);
+        return;
+      }
+      const amt = Number(it.amount);
+      if (isNaN(amt)) return;
+      if (r) {
+        sh.getRange(r, 1, 1, 5).setValues([[fy, it.half, it.branch, amt, now]]);
+      } else {
+        sh.appendRow([fy, it.half, it.branch, amt, now]);
+      }
+    });
+    delRows.sort((a, b) => b - a).forEach(r => sh.deleteRow(r));
+    return makeRes({ fy: fy });
+  } catch (err) {
+    return makeErr('targetSave error: ' + err.toString());
+  } finally {
+    lock.releaseLock();
   }
 }
 

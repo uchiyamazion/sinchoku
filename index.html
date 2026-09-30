@@ -217,6 +217,12 @@
   .ana-card .l{ font-size:10.5px; color:var(--ink-soft); }
   .ana-card .v{ font-size:17px; font-weight:700; margin-top:2px; font-family:'IBM Plex Mono',monospace; }
   .ana-card .s{ font-size:10px; color:var(--ink-soft); margin-top:1px; }
+  .ana-period{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:0 0 12px; font-size:12px; }
+  .ana-period select{ padding:5px 8px; border:1px solid var(--line); border-radius:6px; font-size:12.5px; font-family:inherit; background:#fff; }
+  .ana-bar{ height:6px; background:#E5EAF0; border-radius:3px; overflow:hidden; min-width:70px; margin-top:3px; }
+  .ana-bar > i{ display:block; height:100%; background:var(--navy); }
+  .ana-bar.over > i{ background:#2E9E6B; }
+  .tg-input{ width:92px; padding:4px 6px; border:1px solid var(--line); border-radius:5px; text-align:right; font-family:'IBM Plex Mono',monospace; font-size:12.5px; }
   .ana-h{ font-size:12.5px; font-weight:700; margin:16px 0 6px; }
   .ana-reason{ font-size:12px; line-height:1.6; padding:6px 0; border-bottom:1px solid var(--line); }
   .ana-reason .m{ color:var(--ink-soft); font-size:10.5px; }
@@ -502,8 +508,12 @@
     <h2>📊 受注率・分析</h2>
     <div class="cash-sub">
       受注率＝受注系（受注・工事中・完了）÷（受注系＋失注）。進行中（未設定・見積提出済）は含みません。現在の絞り込み条件が反映されます。<br>
-      ランクS・ランクE・確定金額ありによる自動判定も、それぞれ受注・失注・完了として数えます。
+      ランクS・ランクE・確定金額ありによる自動判定も、それぞれ受注・失注・完了として数えます。<br>
+      年度は<b>4月始まり</b>（上期＝4〜9月、下期＝10〜3月）。案件の期は、受注日（記録があれば）→受注予定月→見積提出日→発生日の順で判定します。
     </div>
+    <div class="ana-period" id="anaPeriod"></div>
+    <div id="anaCards"></div>
+    <div id="anaTarget"></div>
     <div class="ana-tabs" id="anaTabs"></div>
     <div id="anaBody"></div>
     <div class="modal-actions"><button class="btn btn-primary" id="btnAnaClose">閉じる</button></div>
@@ -780,7 +790,8 @@ const ANA_TABS = [
   { key: 'assignee', label: '担当者', get: d => d.assignee || '（未設定）' },
   { key: 'branch',   label: '拠点',   get: d => d.branch || '（未設定）' },
   { key: 'rank',     label: 'ランク', get: d => d.rank || '（なし）' },
-  { key: 'source',   label: '源泉',   get: d => d.source || '（なし）' }
+  { key: 'source',   label: '源泉',   get: d => d.source || '（なし）' },
+  { key: 'customer', label: '受注先', get: d => d.customerName || '（未設定）' }
 ];
 let anaTab = 'assignee';
 
@@ -809,26 +820,166 @@ function anaAggregate(list){
 const pct = (x, y) => (y > 0 ? Math.round(x / y * 100) + '%' : '－');
 const avgDays = arr => (arr.length ? (arr.reduce((s, v) => s + v, 0) / arr.length).toFixed(1) + '日' : '－');
 
+// ---- 年度（4月始まり）・期（上期4〜9月／下期10〜3月）・目標 ----
+const BRANCH_ORDER = ['営業部', '営業部（ビルメン）', '１課', '２課', '３課', '函館', '旭川'];
+let anaFy = null;          // 年度（数値）または 'all'
+let anaHalf = '通期';      // '通期' | '上期' | '下期'
+let targets = [];          // [{fy, half, branch, amount}]
+let targetsOk = true;      // GAS側が未更新なら false
+let anaEditTarget = false;
+
+function fyOf(dt){ return dt.getMonth() + 1 >= 4 ? dt.getFullYear() : dt.getFullYear() - 1; }
+function halfOf(dt){ const m = dt.getMonth() + 1; return (m >= 4 && m <= 9) ? '上期' : '下期'; }
+function dealBaseDate(d){
+  const ok = x => (x && !isNaN(x.getTime())) ? x : null;
+  if(d.orderedAt && ANA_WON.indexOf(effStatus(d)) >= 0){ const x = ok(new Date(d.orderedAt)); if(x) return x; }
+  const m = normMonth(d.expectedOrderMonth);
+  if(/^\d{4}-\d{2}$/.test(m)) return new Date(Number(m.slice(0, 4)), Number(m.slice(5)) - 1, 1);
+  if(d.quoteDate){ const x = ok(new Date(d.quoteDate)); if(x) return x; }
+  if(d.occurredDate){ const x = ok(new Date(d.occurredDate)); if(x) return x; }
+  return null;
+}
+function inPeriod(d){
+  if(anaFy === 'all') return true;
+  const bd = dealBaseDate(d);
+  if(!bd) return false;
+  return fyOf(bd) === anaFy && (anaHalf === '通期' || halfOf(bd) === anaHalf);
+}
+function branchList(){
+  const set = new Set(BRANCH_ORDER);
+  deals.forEach(d => { if(d.branch) set.add(d.branch); });
+  targets.forEach(t => set.add(t.branch));
+  const rest = [...set].filter(b => BRANCH_ORDER.indexOf(b) < 0).sort();
+  return BRANCH_ORDER.concat(rest);
+}
+function targetOf(branch, fy, half){
+  const sum = h => targets.filter(t => t.fy === fy && t.branch === branch && t.half === h).reduce((s, t) => s + t.amount, 0);
+  const has = h => targets.some(t => t.fy === fy && t.branch === branch && t.half === h);
+  if(half === '通期') return (has('上期') || has('下期')) ? sum('上期') + sum('下期') : null;
+  return has(half) ? sum(half) : null;
+}
+function fyOptions(){
+  const set = new Set([fyOf(new Date())]);
+  deals.forEach(d => { const bd = dealBaseDate(d); if(bd) set.add(fyOf(bd)); });
+  targets.forEach(t => set.add(t.fy));
+  return [...set].sort((a, b) => b - a);
+}
+function renderTargetSection(){
+  const box = document.getElementById('anaTarget');
+  if(anaFy === 'all'){ box.innerHTML = ''; return; }
+  if(!targetsOk){
+    box.innerHTML = '<div class="cash-note">目標金額の機能は、GAS（Code.gs）を更新すると使えるようになります。</div>';
+    return;
+  }
+  const branches = branchList();
+  const title = `🎯 部署別の目標達成（${anaFy}年度 ${anaHalf}）`;
+
+  if(anaEditTarget){
+    const man = v => (v === null ? '' : Math.round(v / 10000));
+    box.innerHTML = `<div class="ana-h" style="margin-top:4px">${anaFy}年度の目標を設定（単位：万円・空欄＝未設定）</div>
+      <div class="cash-table-wrap"><table class="cash-table"><thead><tr><th>部署</th><th>上期（4〜9月）</th><th>下期（10〜3月）</th></tr></thead><tbody>` +
+      branches.map((b, i) => `<tr><td>${escapeHtml(b)}</td>
+        <td><input class="tg-input" type="number" inputmode="numeric" id="tg-${i}-up" value="${man(targetOf(b, anaFy, '上期'))}"></td>
+        <td><input class="tg-input" type="number" inputmode="numeric" id="tg-${i}-down" value="${man(targetOf(b, anaFy, '下期'))}"></td></tr>`).join('') +
+      `</tbody></table></div>
+      <div style="margin-top:8px; display:flex; gap:8px;">
+        <button class="btn btn-primary" id="btnTgSave" onclick="saveTargets()">保存</button>
+        <button class="btn btn-ghost" onclick="anaEditTarget=false; renderAnalysis();">キャンセル</button>
+      </div>`;
+    return;
+  }
+
+  // 絞り込み条件の影響を受けないよう、全案件を対象に期間だけで集計する
+  const periodDeals = deals.filter(inPeriod);
+  let totT = 0, totA = 0, totO = 0, anyT = false;
+  const rows = branches.map(b => {
+    const ds = periodDeals.filter(d => d.branch === b);
+    const a = anaAggregate(ds);
+    const t = targetOf(b, anaFy, anaHalf);
+    if(t !== null){ totT += t; anyT = true; }
+    totA += a.wonAmt; totO += a.openAmt;
+    return { b, a, t };
+  }).filter(r => r.t !== null || r.a.wonAmt || r.a.openAmt);
+
+  const rateCell = (act, t) => {
+    if(t === null || t === 0) return '－';
+    const p = Math.round(act / t * 100);
+    return `${p}%<div class="ana-bar ${p >= 100 ? 'over' : ''}"><i style="width:${Math.min(p, 100)}%"></i></div>`;
+  };
+  const diffCell = (act, t) => {
+    if(t === null) return '－';
+    const d = t - act;
+    return d > 0 ? fmtYen(d) : `<span style="color:#2E9E6B">＋${fmtYen(-d)}</span>`;
+  };
+  box.innerHTML = `<div class="ana-h" style="margin-top:4px; display:flex; justify-content:space-between; align-items:center;">
+      <span>${title}</span><button class="btn btn-ghost btn-mini" onclick="anaEditTarget=true; renderAnalysis();">目標を設定</button></div>
+    <div class="cash-table-wrap"><table class="cash-table"><thead><tr>
+      <th>部署</th><th>目標</th><th>受注実績</th><th>達成率</th><th>残り／超過</th><th>進行中の見込</th></tr></thead><tbody>` +
+    rows.map(r => `<tr><td>${escapeHtml(r.b)}</td><td class="num">${r.t === null ? '未設定' : fmtYen(r.t)}</td>
+      <td class="num">${fmtYen(r.a.wonAmt)}</td><td class="num">${rateCell(r.a.wonAmt, r.t)}</td>
+      <td class="num">${diffCell(r.a.wonAmt, r.t)}</td><td class="num">${fmtYen(r.a.openAmt)}</td></tr>`).join('') +
+    `</tbody><tfoot><tr><td>合計</td><td class="num">${anyT ? fmtYen(totT) : '－'}</td><td class="num">${fmtYen(totA)}</td>
+      <td class="num">${anyT ? rateCell(totA, totT) : '－'}</td><td class="num">${anyT ? diffCell(totA, totT) : '－'}</td><td class="num">${fmtYen(totO)}</td></tr></tfoot></table></div>
+    <div class="cash-note" style="margin-top:8px">受注実績は受注系（受注・工事中・完了）の金額（確定金額があればそれ、なければ見積金額）です。この表は絞り込み条件の影響を受けません。</div>`;
+}
+async function saveTargets(){
+  const btn = document.getElementById('btnTgSave');
+  btn.disabled = true; btn.textContent = '保存中…';
+  const items = [];
+  branchList().forEach((b, i) => {
+    [['上期', 'up'], ['下期', 'down']].forEach(([half, id]) => {
+      const v = document.getElementById(`tg-${i}-${id}`).value.trim();
+      items.push({ half, branch: b, amount: v === '' ? '' : Math.round(Number(v) * 10000) });
+    });
+  });
+  try{
+    const res = await gasPost('target_save', { fy: anaFy, items });
+    if(res.status !== 'success'){ alert('保存に失敗しました：' + res.data); btn.disabled = false; btn.textContent = '保存'; return; }
+    const r2 = await gasGet('target_list');
+    if(r2.status === 'success') targets = r2.data;
+    anaEditTarget = false;
+    renderAnalysis();
+  }catch(e){
+    alert('保存に失敗しました：' + e); btn.disabled = false; btn.textContent = '保存';
+  }
+}
+
 function renderAnalysis(){
-  const list = visibleDeals();
+  const listPre = visibleDeals();
+  const list = listPre.filter(inPeriod);
+  const undated = anaFy === 'all' ? 0 : listPre.filter(d => !dealBaseDate(d)).length;
   const all = anaAggregate(list);
+
+  // 期間の選択
+  document.getElementById('anaPeriod').innerHTML =
+    `<span>期間：</span><select onchange="anaFy = this.value === 'all' ? 'all' : Number(this.value); anaEditTarget = false; renderAnalysis();">` +
+    `<option value="all" ${anaFy === 'all' ? 'selected' : ''}>全期間</option>` +
+    fyOptions().map(y => `<option value="${y}" ${anaFy === y ? 'selected' : ''}>${y}年度（${y}/4〜${y + 1}/3）</option>`).join('') + `</select>` +
+    `<select ${anaFy === 'all' ? 'disabled' : ''} onchange="anaHalf = this.value; anaEditTarget = false; renderAnalysis();">` +
+    ['通期', '上期', '下期'].map(x => `<option ${anaHalf === x ? 'selected' : ''}>${x}</option>`).join('') + `</select>` +
+    (undated ? `<span style="color:var(--ink-soft)">※期を判定できない${undated}件は集計外</span>` : '');
+  renderTargetSection();
   const decided = all.won + all.lost;
 
   document.getElementById('anaTabs').innerHTML = ANA_TABS.map(t =>
     `<button class="${t.key === anaTab ? 'active' : ''}" onclick="anaTab='${t.key}'; renderAnalysis();">${t.label}別</button>`).join('');
 
-  let html = `<div class="ana-cards">
+  const cardsHtml = `<div class="ana-cards">
     <div class="ana-card"><div class="l">受注率（件数）</div><div class="v">${pct(all.won, decided)}</div><div class="s">受注 ${all.won}件 ／ 失注 ${all.lost}件</div></div>
     <div class="ana-card"><div class="l">受注率（金額）</div><div class="v">${pct(all.wonAmt, all.wonAmt + all.lostAmt)}</div><div class="s">受注 ${fmtYen(all.wonAmt)}</div></div>
     <div class="ana-card"><div class="l">見積→受注の平均日数</div><div class="v">${avgDays(all.dayList)}</div><div class="s">${all.dayList.length}件で算出</div></div>
     <div class="ana-card"><div class="l">進行中</div><div class="v">${all.open}件</div><div class="s">${fmtYen(all.openAmt)}</div></div>
   </div>`;
 
+  document.getElementById('anaCards').innerHTML = cardsHtml;
+  let html = '';
   const tab = ANA_TABS.find(t => t.key === anaTab);
   const groups = {};
   list.forEach(d => { const k = tab.get(d); (groups[k] = groups[k] || []).push(d); });
   const rows = Object.keys(groups).map(k => ({ k, a: anaAggregate(groups[k]) }))
-    .sort((x, y) => (y.a.won + y.a.lost) - (x.a.won + x.a.lost) || y.a.open - x.a.open);
+    .sort((x, y) => anaTab === 'customer'
+      ? (y.a.wonAmt - x.a.wonAmt) || (y.a.openAmt - x.a.openAmt)
+      : (y.a.won + y.a.lost) - (x.a.won + x.a.lost) || y.a.open - x.a.open);
 
   html += `<div class="cash-table-wrap"><table class="cash-table"><thead><tr>
     <th>${tab.label}</th><th>受注</th><th>失注</th><th>進行中</th><th>受注率(件)</th><th>受注金額</th><th>平均日数</th>
@@ -854,9 +1005,18 @@ function renderAnalysis(){
 
   document.getElementById('anaBody').innerHTML = html;
 }
-function openAnalysisPanel(){
+async function openAnalysisPanel(){
+  if(anaFy === null){ anaFy = fyOf(new Date()); anaHalf = halfOf(new Date()); }
+  anaEditTarget = false;
   renderAnalysis();
   document.getElementById('anaOverlay').classList.add('open');
+  // 目標は開くたびに取り直す（他の人の更新も反映）
+  try{
+    const r = await gasGet('target_list');
+    targetsOk = (r.status === 'success');
+    if(targetsOk) targets = r.data;
+  }catch(e){ targetsOk = false; }
+  if(document.getElementById('anaOverlay').classList.contains('open') && !anaEditTarget) renderAnalysis();
 }
 document.getElementById('btnAnaClose').addEventListener('click', () => document.getElementById('anaOverlay').classList.remove('open'));
 document.getElementById('anaOverlay').addEventListener('click', e => { if(e.target.id === 'anaOverlay') e.target.classList.remove('open'); });
