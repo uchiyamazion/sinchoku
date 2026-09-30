@@ -42,6 +42,7 @@ const EXTRA_HEADERS = [
   'supplier', 'purchaseDate', 'purchaseAmount', 'billingMonth',
   'paymentTerms', 'receiptMonth',
   'nextActionDate', 'nextActionNote',
+  'orderedAt',
   'updatedAt'
 ];
 
@@ -257,6 +258,7 @@ function dealList() {
       quoteDate: extra.quoteDate || '',
       lostReason: extra.lostReason || '',
       winFactor: extra.winFactor || '',
+      orderedAt: extra.orderedAt || '',
       constructionStart: extra.constructionStart || '',
       constructionEnd: extra.constructionEnd || '',
       supplier: extra.supplier || '',
@@ -520,6 +522,24 @@ function dealExtraUpsert(data) {
         if (rangesOverlap_(data.constructionStart, data.constructionEnd, rowStart, rowEnd)) {
           conflicts.push({ id: rowId, constructionStart: rowStart, constructionEnd: rowEnd });
         }
+      }
+    }
+
+    // 受注日時の自動記録：受注系ステータスへ「切り替わった」ときだけ記録する
+    // （既に受注系だった案件には後から日時を付けない＝過去案件の日数が狂わないように）
+    const oCol = headers.indexOf('orderedAt');
+    if (oCol >= 0) {
+      const WON_STATUSES = ['受注', '工事中', '完了'];
+      const sCol = headers.indexOf('status');
+      let exOrdered = '', exStatus = '';
+      for (let i = 1; i < vals.length; i++) {
+        if (vals[i][idCol] == data.id) { exOrdered = vals[i][oCol]; exStatus = vals[i][sCol]; break; }
+      }
+      const effSt = data.status !== undefined ? data.status : exStatus;
+      if (WON_STATUSES.indexOf(effSt) >= 0) {
+        data.orderedAt = exOrdered || (WON_STATUSES.indexOf(exStatus) >= 0 ? '' : new Date());
+      } else {
+        data.orderedAt = '';
       }
     }
 

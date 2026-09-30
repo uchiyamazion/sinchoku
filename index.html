@@ -209,6 +209,17 @@
   .cash-table td.neg{ color:var(--red); }
   .cash-table tfoot td{ font-weight:700; border-top:2px solid var(--line); border-bottom:none; }
   .cash-count{ font-size:10px; color:var(--ink-soft); margin-left:4px; font-family:'IBM Plex Sans JP',sans-serif; }
+  .ana-tabs{ display:flex; gap:6px; flex-wrap:wrap; margin:0 0 12px; }
+  .ana-tabs button{ border:1px solid var(--line); background:#fff; border-radius:999px; padding:5px 12px; font-size:12px; cursor:pointer; color:var(--ink); font-family:inherit; }
+  .ana-tabs button.active{ background:var(--navy); color:#fff; border-color:var(--navy); }
+  .ana-cards{ display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px; margin-bottom:14px; }
+  .ana-card{ background:#F5F8FB; border-radius:8px; padding:9px 11px; }
+  .ana-card .l{ font-size:10.5px; color:var(--ink-soft); }
+  .ana-card .v{ font-size:17px; font-weight:700; margin-top:2px; font-family:'IBM Plex Mono',monospace; }
+  .ana-card .s{ font-size:10px; color:var(--ink-soft); margin-top:1px; }
+  .ana-h{ font-size:12.5px; font-weight:700; margin:16px 0 6px; }
+  .ana-reason{ font-size:12px; line-height:1.6; padding:6px 0; border-bottom:1px solid var(--line); }
+  .ana-reason .m{ color:var(--ink-soft); font-size:10.5px; }
   .cash-note{ margin-top:12px; padding:9px 11px; background:var(--grey-soft); border-radius:6px; font-size:11.5px; color:var(--ink); line-height:1.7; }
   #summaryBar .s-action{ justify-content:center; }
   .card.status-unread{ border-left:4px solid var(--amber); }
@@ -486,6 +497,19 @@
   </div>
 </div>
 
+<div class="overlay" id="anaOverlay">
+  <div class="modal cash-modal">
+    <h2>📊 受注率・分析</h2>
+    <div class="cash-sub">
+      受注率＝受注系（受注・工事中・完了）÷（受注系＋失注）。進行中（未設定・見積提出済）は含みません。現在の絞り込み条件が反映されます。<br>
+      ランクS・ランクE・確定金額ありによる自動判定も、それぞれ受注・失注・完了として数えます。
+    </div>
+    <div class="ana-tabs" id="anaTabs"></div>
+    <div id="anaBody"></div>
+    <div class="modal-actions"><button class="btn btn-primary" id="btnAnaClose">閉じる</button></div>
+  </div>
+</div>
+
 <div id="summaryBar"></div>
 
 <div class="board" id="board" style="display:none;">
@@ -749,6 +773,95 @@ function openCashPanel(){
   document.getElementById('cashOverlay').classList.add('open');
 }
 document.getElementById('btnCashClose').addEventListener('click', () => document.getElementById('cashOverlay').classList.remove('open'));
+
+// ==== 受注率・分析パネル ====
+const ANA_WON = ['受注', '工事中', '完了'];
+const ANA_TABS = [
+  { key: 'assignee', label: '担当者', get: d => d.assignee || '（未設定）' },
+  { key: 'branch',   label: '拠点',   get: d => d.branch || '（未設定）' },
+  { key: 'rank',     label: 'ランク', get: d => d.rank || '（なし）' },
+  { key: 'source',   label: '源泉',   get: d => d.source || '（なし）' }
+];
+let anaTab = 'assignee';
+
+function daysBetween(a, b){
+  const x = new Date(a), y = new Date(b);
+  if(isNaN(x.getTime()) || isNaN(y.getTime())) return null;
+  const n = Math.round((y.getTime() - x.getTime()) / 86400000);
+  return n >= 0 ? n : null;
+}
+function quoteToOrderDays(d){
+  if(!d.orderedAt || !d.quoteDate) return null;
+  return daysBetween(d.quoteDate, d.orderedAt);
+}
+function anaAggregate(list){
+  const a = { won: 0, lost: 0, open: 0, wonAmt: 0, lostAmt: 0, openAmt: 0, dayList: [] };
+  list.forEach(d => {
+    const st = effStatus(d), amt = amountOf(d) || 0;
+    if(ANA_WON.indexOf(st) >= 0){
+      a.won++; a.wonAmt += amt;
+      const n = quoteToOrderDays(d); if(n !== null) a.dayList.push(n);
+    } else if(st === '失注'){ a.lost++; a.lostAmt += amt; }
+    else { a.open++; a.openAmt += amt; }
+  });
+  return a;
+}
+const pct = (x, y) => (y > 0 ? Math.round(x / y * 100) + '%' : '－');
+const avgDays = arr => (arr.length ? (arr.reduce((s, v) => s + v, 0) / arr.length).toFixed(1) + '日' : '－');
+
+function renderAnalysis(){
+  const list = visibleDeals();
+  const all = anaAggregate(list);
+  const decided = all.won + all.lost;
+
+  document.getElementById('anaTabs').innerHTML = ANA_TABS.map(t =>
+    `<button class="${t.key === anaTab ? 'active' : ''}" onclick="anaTab='${t.key}'; renderAnalysis();">${t.label}別</button>`).join('');
+
+  let html = `<div class="ana-cards">
+    <div class="ana-card"><div class="l">受注率（件数）</div><div class="v">${pct(all.won, decided)}</div><div class="s">受注 ${all.won}件 ／ 失注 ${all.lost}件</div></div>
+    <div class="ana-card"><div class="l">受注率（金額）</div><div class="v">${pct(all.wonAmt, all.wonAmt + all.lostAmt)}</div><div class="s">受注 ${fmtYen(all.wonAmt)}</div></div>
+    <div class="ana-card"><div class="l">見積→受注の平均日数</div><div class="v">${avgDays(all.dayList)}</div><div class="s">${all.dayList.length}件で算出</div></div>
+    <div class="ana-card"><div class="l">進行中</div><div class="v">${all.open}件</div><div class="s">${fmtYen(all.openAmt)}</div></div>
+  </div>`;
+
+  const tab = ANA_TABS.find(t => t.key === anaTab);
+  const groups = {};
+  list.forEach(d => { const k = tab.get(d); (groups[k] = groups[k] || []).push(d); });
+  const rows = Object.keys(groups).map(k => ({ k, a: anaAggregate(groups[k]) }))
+    .sort((x, y) => (y.a.won + y.a.lost) - (x.a.won + x.a.lost) || y.a.open - x.a.open);
+
+  html += `<div class="cash-table-wrap"><table class="cash-table"><thead><tr>
+    <th>${tab.label}</th><th>受注</th><th>失注</th><th>進行中</th><th>受注率(件)</th><th>受注金額</th><th>平均日数</th>
+  </tr></thead><tbody>` + rows.map(r => `<tr>
+    <td>${escapeHtml(r.k)}</td><td class="num">${r.a.won}</td><td class="num">${r.a.lost}</td><td class="num">${r.a.open}</td>
+    <td class="num">${pct(r.a.won, r.a.won + r.a.lost)}</td><td class="num">${fmtYen(r.a.wonAmt)}</td><td class="num">${avgDays(r.a.dayList)}</td>
+  </tr>`).join('') + `</tbody></table></div>`;
+
+  // 失注理由・受注の決め手（新しい順）
+  const byNew = (x, y) => new Date(y.updatedAt || 0).getTime() - new Date(x.updatedAt || 0).getTime();
+  const lostList = list.filter(d => effStatus(d) === '失注').sort(byNew);
+  const lostWith = lostList.filter(d => d.lostReason);
+  html += `<div class="ana-h">失注理由（新しい順・${lostWith.length}件／失注${lostList.length}件中）</div>`;
+  html += lostWith.length ? lostWith.slice(0, 15).map(d =>
+    `<div class="ana-reason">${escapeHtml(d.lostReason)}<div class="m">${escapeHtml(d.customerName || d.siteName || '')} ／ ${fmtYen(amountOf(d) || 0)} ／ ${escapeHtml(d.assignee || '')}</div></div>`).join('')
+    : '<div class="ana-reason" style="color:var(--ink-soft)">入力された失注理由はまだありません（失注へ移動するときに入力できます）</div>';
+
+  const winWith = list.filter(d => ANA_WON.indexOf(effStatus(d)) >= 0 && d.winFactor).sort(byNew);
+  html += `<div class="ana-h">受注の決め手（新しい順・${winWith.length}件）</div>`;
+  html += winWith.length ? winWith.slice(0, 10).map(d =>
+    `<div class="ana-reason">${escapeHtml(d.winFactor)}<div class="m">${escapeHtml(d.customerName || d.siteName || '')} ／ ${fmtYen(amountOf(d) || 0)} ／ ${escapeHtml(d.assignee || '')}</div></div>`).join('')
+    : '<div class="ana-reason" style="color:var(--ink-soft)">入力された決め手はまだありません</div>';
+
+  document.getElementById('anaBody').innerHTML = html;
+}
+function openAnalysisPanel(){
+  renderAnalysis();
+  document.getElementById('anaOverlay').classList.add('open');
+}
+document.getElementById('btnAnaClose').addEventListener('click', () => document.getElementById('anaOverlay').classList.remove('open'));
+document.getElementById('anaOverlay').addEventListener('click', e => { if(e.target.id === 'anaOverlay') e.target.classList.remove('open'); });
+
+
 document.getElementById('cashOverlay').addEventListener('click', e => { if(e.target.id === 'cashOverlay') e.target.classList.remove('open'); });
 
 // ==== 現在状況の更新検知（このブラウザで最後に確認した内容との比較） ====
@@ -1204,6 +1317,7 @@ function render(){
     <div class="s-item"><span class="s-label">確定金額合計</span><span class="s-val">${fmtYen(totalConfirmed)}</span></div>
     ${unreadCount ? `<div class="s-item"><span class="s-label">現在状況の更新（未確認）</span><span class="s-val s-warn">${unreadCount}件<button class="btn btn-ghost btn-mini" onclick="markAllSeen()">すべて既読にする</button></span></div>` : ''}
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openCashPanel()">💴 仕入・入金見込</button></div>
+    <div class="s-item s-action"><button class="btn btn-ghost" onclick="openAnalysisPanel()">📊 受注率・分析</button></div>
   `;
 
   document.getElementById('lostCol').style.display = showLost ? 'flex' : 'none';
