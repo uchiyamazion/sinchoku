@@ -1283,7 +1283,7 @@ function celebrateStatusChange(deal){
   const tier = getDealTier(amountOf(deal));
   launchConfetti(tier);
   if(tier.banner) showBigDealBanner(deal, tier);
-  mascotSay(tier.banner ? 'ワーッ！！大きな案件、おめでとぉ〜！！🎉' : 'ヤッタ〜！受注おめでとう！🎉', 'happy', 6000);
+  mascotSay(tier.banner ? '大きな案件、おめでとう〜！！🎉' : '受注おめでとう！🎉', 'happy', 6000);
 }
 
 
@@ -1830,7 +1830,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
       editFields.forEach(f => { extraData[f] = document.getElementById('f-' + f).value; });
       const extraRes = await gasPost('deal_extra_upsert', extraData);
       if(extraRes.status !== 'success'){ alert('追加情報の保存に失敗しました：' + extraRes.data); }
-      mascotSay('新しい案件、ふえたぁ！ヨロシクね🌱', 'happy');
+      mascotSay('新しい案件、登録したよ！🌱', 'happy');
       await loadDeals();
       closeModal();
       return;
@@ -2071,7 +2071,7 @@ function celebrateMilestone({ m, b, g }){
   const who = b || '全体';
   launchConfetti(m >= 100 ? DEAL_TIERS[0] : (m >= 80 ? DEAL_TIERS[2] : BASE_TIER));
   showBigDealBanner({ quoteAmount: g.actual, siteName: `${who}の${g.half}目標` }, { emoji: m >= 100 ? '🏆' : '🎯', label: m >= 100 ? '目標達成！！' : `目標${m}%突破！` });
-  mascotSay(m >= 100 ? `${who}、目標達成ぃ〜！！みんなすごいっ🎉` : (m >= 80 ? `${who}、80%突破！あとちょっとだよぉ✨` : `${who}、目標の半分まで来たよ！ヤッタ〜！`), 'happy', 7000);
+  mascotSay(m >= 100 ? `${who}、目標達成〜！！みんなすごい🎉` : (m >= 80 ? `${who}、80%突破！あと一息だよ✨` : `${who}、目標の半分まで来たよ！`), 'happy', 7000);
 }
 
 // 応援キャラ「しんちょくん」
@@ -2102,8 +2102,8 @@ function mascotInit(){
   document.body.appendChild(mascotEl);
   mascotEl.style.display = mascotOff() ? 'none' : '';
 }
-const MASCOT_TALK = ['今日もコツコツ…いこっ🌱', 'ひとつ入力するたびに、ゲージがぐんぐん育つよ！', 'ンー…次のアクション、決めた？', '空欄をひとつ埋めるだけでも、えらいっ✨', 'ちょっと休憩も…だいじだよぉ☕', 'ワッ…！見てくれてありがとう〜！'];
-const SAVE_MSGS = ['ヤッター！保存できたよ✨', 'ありがとぉ〜！ちゃんと入ったよ！', 'ナイス入力…！えらいっ！', 'ぴかぴかに入ったよ🌷'];
+const MASCOT_TALK = ['今日もコツコツいこう🌱', '入力するたびに、ゲージが育つよ！', '気になる案件、次のアクションは決めた？', '空欄をひとつ埋めるだけでも、えらい✨', 'ちょっと休憩も大事だよ〜☕'];
+const SAVE_MSGS = ['保存したよ！えらい✨', '記録ありがとう〜！', 'ナイス入力！', 'きれいに入ったよ🌷'];
 function mascotSay(text, mood, ms){
   if(mascotOff()) return;
   mascotInit();
@@ -2119,7 +2119,7 @@ function toggleMascot(){
   lsSet(MASCOT_OFF_KEY, mascotOff() ? '0' : '1');
   mascotInit();
   mascotEl.style.display = mascotOff() ? 'none' : '';
-  if(!mascotOff()) mascotSay('ヨロシクね〜！🌱', 'happy');
+  if(!mascotOff()) mascotSay('よろしくね！🌱', 'happy');
   renderFunBar();
 }
 function mascotGreet(){
@@ -2128,10 +2128,10 @@ function mascotGreet(){
   const hr = new Date().getHours();
   const hello = hr < 11 ? 'おはよう！' : (hr < 18 ? 'お疲れさま！' : '遅くまでお疲れさま！');
   const c = dailyCounts();
-  const msg = c.overdue ? `ワ…ワッ…期限が過ぎてる案件が${c.overdue}件あるよぉ…！いっしょに見よ…？`
-    : c.today ? `今日が期限の案件が${c.today}件！ファイトォ✨`
-    : c.stale ? `ンー…止まってる案件が${c.stale}件。声をかけてみる？`
-    : '今日もいい感じだよぉ🌷';
+  const msg = c.overdue ? `期限が過ぎてる案件が${c.overdue}件あるよ…！見てみよう`
+    : c.today ? `今日が期限の案件が${c.today}件！ファイト✨`
+    : c.stale ? `止まってる案件が${c.stale}件。声をかけてみる？`
+    : '今日もいい感じだよ🌷';
   mascotSay(hello + msg, c.overdue ? 'worry' : 'happy', 6500);
 }
 // 保存したあとのひとこと（入力が増えたことをほめる）
@@ -2140,9 +2140,9 @@ function funAfterSave(before, changes, wonNow){
   const a = completeness(Object.assign({}, before, changes)), b = completeness(before);
   if(a.done === a.total && b.done < b.total){
     launchConfetti(BASE_TIER);
-    mascotSay('ワーッ！ぜんぶ埋まったぁ…！ぴかぴか✨', 'happy', 6000);
+    mascotSay('入力ぜんぶ埋まった！ぴかぴか✨', 'happy', 6000);
   } else if(a.done > b.done){
-    mascotSay(`${a.done - b.done}こ入力できた！あと${a.total - a.done}こで完璧だよぉ（${a.missing[0]}とか…！）`, 'happy');
+    mascotSay(`${a.done - b.done}項目入力！あと${a.total - a.done}個で完璧（${a.missing[0]}など）`, 'happy');
   } else {
     mascotSay(pickOne(SAVE_MSGS), 'happy');
   }
