@@ -223,6 +223,8 @@
   .ana-bar > i{ display:block; height:100%; background:var(--navy); }
   .ana-bar.over > i{ background:#2E9E6B; }
   .tg-input{ width:92px; padding:4px 6px; border:1px solid var(--line); border-radius:5px; text-align:right; font-family:'IBM Plex Mono',monospace; font-size:12.5px; }
+  .sim-hint{ font-size:11.5px; margin-top:4px; color:var(--amber); line-height:1.7; }
+  .sim-hint button{ border:1px solid var(--amber); background:#fff; color:var(--ink); border-radius:999px; padding:1px 9px; margin:0 3px 2px 0; font-size:11.5px; cursor:pointer; font-family:inherit; }
   .ana-h{ font-size:12.5px; font-weight:700; margin:16px 0 6px; }
   .ana-reason{ font-size:12px; line-height:1.6; padding:6px 0; border-bottom:1px solid var(--line); }
   .ana-reason .m{ color:var(--ink-soft); font-size:10.5px; }
@@ -485,6 +487,7 @@
 </div>
 
 <div id="conflictBanner"></div>
+<datalist id="dl-siteName"></datalist><datalist id="dl-assignee"></datalist><datalist id="dl-customerName"></datalist><datalist id="dl-supplier"></datalist>
 
 <div id="loadingOverlay">
   <div class="spinner"></div>
@@ -584,10 +587,10 @@
 
     <div class="section-label">基本情報（編集すると元のスプレッドシートに直接反映されます）</div>
     <div class="field-grid">
-      <div class="field full"><label>現場名</label><input id="c-siteName"></div>
+      <div class="field full"><label>現場名</label><input id="c-siteName" list="dl-siteName" autocomplete="off"></div>
       <div class="field"><label id="dealNoLabel">案件No</label><input id="c-dealNo"></div>
-      <div class="field"><label>担当者</label><input id="c-assignee"></div>
-      <div class="field"><label>顧客名</label><input id="c-customerName"></div>
+      <div class="field"><label>担当者</label><input id="c-assignee" list="dl-assignee" autocomplete="off"></div>
+      <div class="field"><label>顧客名</label><input id="c-customerName" list="dl-customerName" autocomplete="off"></div>
       <div class="field full"><label>案件名</label><input id="c-projectName"></div>
       <div class="field full"><label>案件概略</label><textarea id="c-summary"></textarea></div>
       <div class="field"><label>発生日</label><input type="date" id="c-occurredDate"></div>
@@ -627,7 +630,7 @@
       <div class="field full"><label>受注の決め手</label><textarea id="f-winFactor"></textarea></div>
       <div class="field"><label>工事開始日</label><input type="date" id="f-constructionStart"></div>
       <div class="field"><label>工事終了日</label><input type="date" id="f-constructionEnd"></div>
-      <div class="field"><label>仕入先</label><input id="f-supplier"></div>
+      <div class="field"><label>仕入先</label><input id="f-supplier" list="dl-supplier" autocomplete="off"></div>
       <div class="field"><label>仕入日</label><input type="date" id="f-purchaseDate"></div>
       <div class="field"><label>機器仕入れ金額（円）</label><input type="number" id="f-purchaseAmount"></div>
       <div class="field"><label>支払い月（仕入先への支払い）</label><input type="month" id="f-billingMonth"><span class="field-hint" id="payMonthHint"></span></div>
@@ -1868,6 +1871,59 @@ function snapshotKey(d){
   return JSON.stringify(rest);
 }
 
+// ==== 入力補完（既存の名前を候補に出し、表記ゆれを防ぐ） ====
+const SUGGEST_FIELDS = [
+  { id: 'c-siteName',     dl: 'dl-siteName',     key: 'siteName',     hint: true },
+  { id: 'c-customerName', dl: 'dl-customerName', key: 'customerName', hint: true },
+  { id: 'c-assignee',     dl: 'dl-assignee',     key: 'assignee',     hint: false },
+  { id: 'f-supplier',     dl: 'dl-supplier',     key: 'supplier',     hint: true }
+];
+let suggestValues = {};   // key -> 出現回数の多い順の名前一覧
+// 表記ゆれを吸収したキー（全角半角・空白・記号・「株式会社／(株)」などを無視）
+function normName(s){
+  return String(s || '').normalize('NFKC').toLowerCase()
+    .replace(/株式会社|\(株\)|有限会社|\(有\)|合同会社|\(合\)/g, '')
+    .replace(/[\s　・･\-－ー―‐\.,，、。\(\)（）\[\]【】「」『』"'’]/g, '');
+}
+function refreshSuggestions(){
+  SUGGEST_FIELDS.forEach(f => {
+    const cnt = {};
+    deals.forEach(d => { const v = String(d[f.key] || '').trim(); if(v) cnt[v] = (cnt[v] || 0) + 1; });
+    const names = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a] || a.localeCompare(b, 'ja'));
+    suggestValues[f.key] = names;
+    const dl = document.getElementById(f.dl);
+    if(dl) dl.innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
+  });
+}
+function setupSimilarHints(){
+  SUGGEST_FIELDS.filter(f => f.hint).forEach(f => {
+    const input = document.getElementById(f.id);
+    if(!input) return;
+    const box = document.createElement('div');
+    box.className = 'sim-hint';
+    box.style.display = 'none';
+    input.insertAdjacentElement('afterend', box);
+    const check = () => {
+      const v = input.value.trim();
+      const names = suggestValues[f.key] || [];
+      const k = normName(v);
+      if(!v || !k || names.indexOf(v) >= 0){ box.style.display = 'none'; return; }
+      const sims = names.filter(n => normName(n) === k).slice(0, 3);
+      if(!sims.length){ box.style.display = 'none'; return; }
+      box.innerHTML = '似た名前が既にあります：' + sims.map(n => `<button type="button" data-v="${escapeHtml(n)}">${escapeHtml(n)}</button>`).join('') + '（押すと統一）';
+      box.style.display = '';
+    };
+    box.addEventListener('click', e => {
+      const b = e.target.closest('button[data-v]');
+      if(b){ input.value = b.dataset.v; check(); }
+    });
+    input.addEventListener('input', check);
+    input.addEventListener('change', check);
+    input.addEventListener('focus', check);
+  });
+}
+setupSimilarHints();
+
 // ==== 前回取得したデータをブラウザに保存し、次回起動時に即表示する ====
 const DEALS_CACHE_KEY = 'sinchoku_deals_cache_v1';
 function loadDealsCache(){
@@ -1883,6 +1939,7 @@ function saveDealsCache(data){
 }
 function applyDealsToView(list){
   deals = list;
+  refreshSuggestions();
   // GAS側が未更新（次回アクション列が返ってこない）の間は、保存されない入力欄を隠す
   const gasReady = !deals.length || ('nextActionDate' in deals[0]);
   ['fw-nextActionDate','fw-nextActionNote'].forEach(i => { document.getElementById(i).style.display = gasReady ? '' : 'none'; });
