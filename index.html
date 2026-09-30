@@ -956,7 +956,6 @@ function renderAnalysis(){
   // 期間の選択
   document.getElementById('anaPeriod').innerHTML =
     `<span>期間：</span><select onchange="anaFy = this.value === 'all' ? 'all' : Number(this.value); anaEditTarget = false; renderAnalysis();">` +
-    `<option value="all" ${anaFy === 'all' ? 'selected' : ''}>全期間</option>` +
     fyOptions().map(y => `<option value="${y}" ${anaFy === y ? 'selected' : ''}>${y}年度（${y}/4〜${y + 1}/3）</option>`).join('') + `</select>` +
     `<select ${anaFy === 'all' ? 'disabled' : ''} onchange="anaHalf = this.value; anaEditTarget = false; renderAnalysis();">` +
     ['通期', '上期', '下期'].map(x => `<option ${anaHalf === x ? 'selected' : ''}>${x}</option>`).join('') + `</select>` +
