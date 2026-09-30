@@ -822,6 +822,7 @@ const avgDays = arr => (arr.length ? (arr.reduce((s, v) => s + v, 0) / arr.lengt
 
 // ---- 年度（4月始まり）・期（上期4〜9月／下期10〜3月）・目標 ----
 const BRANCH_ORDER = ['営業部', '営業部（ビルメン）', '１課', '２課', '３課', '函館', '旭川'];
+const ANA_MIN_FY = 2026;   // 2025年度以前は選択肢に出さない
 let anaFy = null;          // 年度（数値）または 'all'
 let anaHalf = '通期';      // '通期' | '上期' | '下期'
 let targets = [];          // [{fy, half, branch, amount}]
@@ -862,7 +863,7 @@ function fyOptions(){
   const set = new Set([fyOf(new Date())]);
   deals.forEach(d => { const bd = dealBaseDate(d); if(bd) set.add(fyOf(bd)); });
   targets.forEach(t => set.add(t.fy));
-  return [...set].sort((a, b) => b - a);
+  return [...set].filter(y => y >= ANA_MIN_FY).sort((a, b) => b - a);
 }
 function renderTargetSection(){
   const box = document.getElementById('anaTarget');
