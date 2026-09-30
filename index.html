@@ -178,6 +178,30 @@
   .badge.b-amber{ background:var(--amber-soft); color:var(--amber); }
   .badge.b-red{ background:var(--red-soft); color:var(--red); }
   .badge.b-grey{ background:var(--grey-soft); color:var(--ink-soft); }
+  .badge.b-comp{ background:var(--grey-soft); color:var(--ink-soft); font-weight:500; }
+  .badge.b-comp.full{ background:var(--green-soft); color:var(--green); }
+  #funBar{ padding:8px 18px 0; display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; }
+  .fun-chip{ display:inline-flex; align-items:center; font-size:12px; font-weight:600; padding:4px 11px; border-radius:999px; border:none; font-family:inherit; }
+  .fun-chip.red{ background:var(--red-soft); color:var(--red); } .fun-chip.amber{ background:var(--amber-soft); color:var(--amber); }
+  .fun-chip.grey{ background:var(--grey-soft); color:var(--ink-soft); } .fun-chip.ok{ background:var(--green-soft); color:var(--green); }
+  button.fun-chip{ cursor:pointer; }
+  .fun-link{ border:none; background:none; color:var(--ink-soft); font-size:11.5px; cursor:pointer; font-family:inherit; text-decoration:underline; padding:2px 4px; }
+  .gauge{ flex:1 1 360px; min-width:260px; cursor:pointer; }
+  .gauge-top, .gauge-sub{ display:flex; justify-content:space-between; gap:8px; font-size:11.5px; color:var(--ink-soft); flex-wrap:wrap; }
+  .gauge-top{ color:var(--ink); font-weight:600; }
+  .gauge-track{ position:relative; height:12px; background:#E5EAF0; border-radius:6px; overflow:hidden; margin:3px 0; }
+  .gauge-track > i{ display:block; height:100%; background:var(--navy); border-radius:6px; transition:width .8s ease; }
+  .gauge-track > i.hi{ background:var(--amber); } .gauge-track > i.done{ background:linear-gradient(90deg,#3F7D58,#D4AF37); }
+  .gauge-track > b{ position:absolute; top:0; bottom:0; width:2px; background:rgba(255,255,255,.85); }
+  .mascot{ position:fixed; right:14px; bottom:14px; z-index:40; display:flex; flex-direction:column; align-items:flex-end; gap:4px; pointer-events:none; }
+  .mascot svg{ width:62px; height:62px; cursor:pointer; pointer-events:auto; animation:m-float 3.2s ease-in-out infinite; filter:drop-shadow(0 2px 3px rgba(0,0,0,.15)); }
+  .mascot.happy svg{ animation:m-jump .45s ease-in-out 3; }
+  .mascot .m-open{ display:none; } .mascot.happy .m-open{ display:inline; } .mascot.happy .m-smile{ display:none; }
+  .m-bubble{ max-width:230px; background:#fff; border:1.5px solid #3a3a3a; border-radius:12px; padding:7px 11px; font-size:12px; line-height:1.6; opacity:0; transform:translateY(6px); transition:all .25s; pointer-events:none; }
+  .m-bubble.show{ opacity:1; transform:none; }
+  @keyframes m-float{ 0%,100%{ transform:translateY(0);} 50%{ transform:translateY(-4px);} }
+  @keyframes m-jump{ 0%,100%{ transform:translateY(0);} 50%{ transform:translateY(-16px);} }
+  @media (max-width:700px){ .mascot svg{ width:48px; height:48px; } #funBar{ padding:8px 12px 0; } }
   .amt{ font-family:'IBM Plex Mono',monospace; font-weight:600; color:var(--ink); font-size:12px; }
   .next-action{ font-size:10.5px; margin-top:6px; color:var(--ink-soft); display:flex; gap:4px; align-items:center; }
   .next-action.overdue{ color:var(--red); font-weight:700; }
@@ -403,6 +427,7 @@
     <button class="btn btn-primary" id="btnNew">＋ 新規</button>
   </div>
 </header>
+<div id="funBar"></div>
 
 <div id="filterPanel" class="filter-panel">
   <div class="filter-grid">
@@ -944,6 +969,7 @@ async function saveTargets(){
     if(r2.status === 'success') targets = r2.data;
     anaEditTarget = false;
     renderAnalysis();
+    renderFunBar(); checkMilestones();
   }catch(e){
     alert('保存に失敗しました：' + (e && e.message ? e.message : e));
     btn.disabled = false; btn.textContent = '保存';
@@ -1021,6 +1047,7 @@ async function openAnalysisPanel(){
     targetsOk = (r.status === 'success');
     if(targetsOk) targets = r.data;
   }catch(e){ targetsOk = false; }
+  renderFunBar();
   if(document.getElementById('anaOverlay').classList.contains('open') && !anaEditTarget) renderAnalysis();
 }
 document.getElementById('btnAnaClose').addEventListener('click', () => document.getElementById('anaOverlay').classList.remove('open'));
@@ -1248,6 +1275,7 @@ function celebrateStatusChange(deal){
   const tier = getDealTier(amountOf(deal));
   launchConfetti(tier);
   if(tier.banner) showBigDealBanner(deal, tier);
+  mascotSay(tier.banner ? '大きな案件、おめでとう〜！！🎉' : '受注おめでとう！🎉', 'happy', 6000);
 }
 
 
@@ -1403,6 +1431,7 @@ function updateFilterCountBadge(){
 
 function render(){
   updateFilterCountBadge();
+  try{ renderFunBar(); }catch(e){ console.error(e); }
   let visible = visibleDeals();
   const { conflictIds, pairs } = findConflicts();
   if(conflictOnlyVal) visible = visible.filter(d => conflictIds.has(d.id));
@@ -1539,6 +1568,7 @@ function renderCard(d, hasConflict, justUpdated){
       ${profitRateBadge(d)}
       ${elapsedBadge(d)}
       ${staleBadge(d)}
+      ${completenessBadge(d)}
     </div>
     <div class="row mono" style="color:var(--ink-soft); font-size:10.5px;">
       <span>${dateLine}</span>
@@ -1792,6 +1822,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
       editFields.forEach(f => { extraData[f] = document.getElementById('f-' + f).value; });
       const extraRes = await gasPost('deal_extra_upsert', extraData);
       if(extraRes.status !== 'success'){ alert('追加情報の保存に失敗しました：' + extraRes.data); }
+      mascotSay('新しい案件、登録したよ！🌱', 'happy');
       await loadDeals();
       closeModal();
       return;
@@ -1850,6 +1881,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
     if((newStatusVal === '受注' || newStatusVal === '完了') && newStatusVal !== prevStatus){
       celebrateStatusChange(Object.assign({}, currentDeal, extraData));
     }
+    funAfterSave(currentDeal, Object.assign({}, coreData, extraData), (newStatusVal === '受注' || newStatusVal === '完了') && newStatusVal !== prevStatus);
     await loadDeals();
     closeModal();
   } finally {
@@ -1924,6 +1956,195 @@ function setupSimilarHints(){
 }
 setupSimilarHints();
 
+// ==== 楽しくする仕掛け（目標ゲージ・今日のひとこと・入力の充実度・応援キャラ） ====
+const MASCOT_OFF_KEY = 'sinchoku_mascot_off';
+function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function lsSet(k, v){ try{ localStorage.setItem(k, v); }catch(e){} }
+function filled(v){ return v !== '' && v != null && !(typeof v === 'string' && !v.trim()); }
+const pickOne = a => a[Math.floor(Math.random() * a.length)];
+
+// 入力の充実度（案件の段階ごとに、そろえたい項目が変わる）
+function completeness(d){
+  const st = effStatus(d);
+  const c = [
+    ['顧客名', filled(d.customerName)], ['現場名', filled(d.siteName)], ['担当者', filled(d.assignee)],
+    ['ランク', filled(d.rank)], ['金額', filled(d.confirmedAmount) || filled(d.quoteAmount)]
+  ];
+  if(st === '失注'){ c.push(['失注理由', filled(d.lostReason)]); }
+  else if(st === '完了'){ c.push(['確定金額', filled(d.confirmedAmount)], ['仕入', filled(d.purchaseAmount)], ['入金予定月', filled(d.receiptMonth)]); }
+  else if(st === '受注' || st === '工事中'){ c.push(['工事日', filled(d.constructionStart)], ['仕入', filled(d.purchaseAmount)], ['入金予定月', filled(d.receiptMonth)]); }
+  else {
+    if(st === '見積中') c.push(['見積提出日', filled(d.quoteDate)]);
+    c.push(['受注予定月', filled(d.expectedOrderMonth)], ['次回アクション', filled(d.nextActionDate)]);
+  }
+  return { done: c.filter(x => x[1]).length, total: c.length, missing: c.filter(x => !x[1]).map(x => x[0]) };
+}
+function completenessBadge(d){
+  const c = completeness(d);
+  if(c.done === c.total) return '<span class="badge b-comp full" title="入力がそろっています">✨</span>';
+  return `<span class="badge b-comp" title="未入力：${escapeHtml(c.missing.join('、'))}">入力${c.done}/${c.total}</span>`;
+}
+
+// 今日のひとこと
+function dailyCounts(){
+  let overdue = 0, today = 0, stale = 0;
+  deals.forEach(d => {
+    const s = nextActionState(d);
+    if(s === 'overdue') overdue++; else if(s === 'today') today++;
+    if(staleDaysOf(d) !== null) stale++;
+  });
+  return { overdue, today, stale };
+}
+function showFollowOnly(){
+  followOnlyVal = true;
+  document.getElementById('followOnlyCheck').checked = true;
+  render();
+}
+
+// 目標ゲージ（今期の目標に対する受注の達成率）
+function gaugeInfo(branch){
+  const now = new Date(), fy = fyOf(now), half = halfOf(now);
+  const branches = branch ? [branch] : branchList();
+  let target = 0, any = false;
+  branches.forEach(b => { const x = targetOf(b, fy, half); if(x !== null){ target += x; any = true; } });
+  if(!any || target <= 0) return null;
+  const ds = deals.filter(d => {
+    const bd = dealBaseDate(d);
+    return bd && fyOf(bd) === fy && halfOf(bd) === half && (!branch || d.branch === branch);
+  });
+  const actual = anaAggregate(ds).wonAmt;
+  const end = half === '上期' ? new Date(fy, 8, 30) : new Date(fy + 1, 2, 31);
+  const remain = Math.round((end.getTime() - todayStart().getTime()) / 86400000) + 1;
+  return { fy, half, target, actual, pct: Math.round(actual / target * 100), remain };
+}
+function renderFunBar(){
+  const box = document.getElementById('funBar');
+  if(!box) return;
+  const c = dailyCounts();
+  const chips = (c.overdue + c.today + c.stale === 0)
+    ? '<span class="fun-chip ok">🎉 今日やることはクリア！</span>'
+    : `<button class="fun-chip red" style="${c.overdue ? '' : 'display:none'}" onclick="showFollowOnly()">期限超過 ${c.overdue}件</button>` +
+      `<button class="fun-chip amber" style="${c.today ? '' : 'display:none'}" onclick="showFollowOnly()">今日が期限 ${c.today}件</button>` +
+      `<button class="fun-chip grey" style="${c.stale ? '' : 'display:none'}" onclick="showFollowOnly()">停滞 ${c.stale}件</button>`;
+  const g = gaugeInfo(branchFilterVal || '');
+  let gauge;
+  if(!g){
+    gauge = '<button class="fun-link" onclick="openAnalysisPanel()">🎯 目標を設定して、ゲージを育てよう</button>';
+  } else {
+    const p = g.pct, w = Math.min(p, 100);
+    const remainText = g.remain <= 1 ? '今日が期末' : `期末まであと${g.remain}日`;
+    gauge = `<div class="gauge" onclick="openAnalysisPanel()" title="クリックで分析を開く">
+      <div class="gauge-top"><span>🎯 ${g.fy}年度 ${g.half}${branchFilterVal ? '・' + escapeHtml(branchFilterVal) : ''}　目標 ${fmtYen(g.target)}</span><span>${p}%　受注 ${fmtYen(g.actual)}</span></div>
+      <div class="gauge-track"><i class="${p >= 100 ? 'done' : (p >= 80 ? 'hi' : '')}" style="width:${w}%"></i><b style="left:50%"></b><b style="left:80%"></b></div>
+      <div class="gauge-sub"><span>${remainText}</span><span>${g.actual >= g.target ? '達成！🎉' : 'あと ' + fmtYen(g.target - g.actual)}</span></div></div>`;
+  }
+  box.innerHTML = `<div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">${chips}</div>${gauge}` +
+    `<button class="fun-link" onclick="toggleMascot()">🌱 しんちょくん：${mascotOff() ? 'OFF' : 'ON'}</button>`;
+}
+
+// 目標ゲージのマイルストーン（50%・80%・100%）を初めて超えたとき、お祝いする
+function checkMilestones(){
+  let best = null;
+  branchList().concat(['']).forEach(b => {
+    const g = gaugeInfo(b);
+    if(!g) return;
+    const m = g.pct >= 100 ? 100 : (g.pct >= 80 ? 80 : (g.pct >= 50 ? 50 : 0));
+    const key = `sinchoku_ms_${g.fy}_${g.half}_${b || '合計'}`;
+    const prev = lsGet(key);
+    if(prev === null){ lsSet(key, String(m)); return; }       // 初めて見たときは祝わない
+    if(m > Number(prev)){
+      lsSet(key, String(m));
+      if(!best || m > best.m || (m === best.m && !b)) best = { m, b, g };
+    } else if(m < Number(prev)){ lsSet(key, String(m)); }     // 目標の見直しなどで下がったときは追従
+  });
+  if(best) celebrateMilestone(best);
+}
+function celebrateMilestone({ m, b, g }){
+  const who = b || '全体';
+  launchConfetti(m >= 100 ? DEAL_TIERS[0] : (m >= 80 ? DEAL_TIERS[2] : BASE_TIER));
+  showBigDealBanner({ quoteAmount: g.actual, siteName: `${who}の${g.half}目標` }, { emoji: m >= 100 ? '🏆' : '🎯', label: m >= 100 ? '目標達成！！' : `目標${m}%突破！` });
+  mascotSay(m >= 100 ? `${who}、目標達成〜！！みんなすごい🎉` : (m >= 80 ? `${who}、80%突破！あと一息だよ✨` : `${who}、目標の半分まで来たよ！`), 'happy', 7000);
+}
+
+// 応援キャラ「しんちょくん」
+function mascotOff(){ return lsGet(MASCOT_OFF_KEY) === '1'; }
+let mascotEl = null, mascotTimer = null, greeted = false;
+function mascotInit(){
+  if(mascotEl) return;
+  mascotEl = document.createElement('div');
+  mascotEl.className = 'mascot';
+  mascotEl.innerHTML = `<div class="m-bubble" id="mBubble"></div>
+    <svg viewBox="0 0 80 80" onclick="mascotSay(pickOne(MASCOT_TALK), 'happy')">
+      <path d="M40 24 q-2 -9 -10 -9 q0 8 10 9 M40 24 q2 -9 10 -9 q0 8 -10 9" fill="#8FD19A" stroke="#3a3a3a" stroke-width="1.6" stroke-linejoin="round"/>
+      <ellipse cx="14" cy="52" rx="6" ry="4.5" fill="#fff" stroke="#3a3a3a" stroke-width="2" transform="rotate(-25 14 52)"/>
+      <ellipse cx="66" cy="52" rx="6" ry="4.5" fill="#fff" stroke="#3a3a3a" stroke-width="2" transform="rotate(25 66 52)"/>
+      <ellipse cx="30" cy="71" rx="7" ry="4.5" fill="#fff" stroke="#3a3a3a" stroke-width="2"/>
+      <ellipse cx="50" cy="71" rx="7" ry="4.5" fill="#fff" stroke="#3a3a3a" stroke-width="2"/>
+      <ellipse cx="40" cy="48" rx="27" ry="23" fill="#fff" stroke="#3a3a3a" stroke-width="2"/>
+      <circle cx="31" cy="45" r="2.7" fill="#333"/><circle cx="49" cy="45" r="2.7" fill="#333"/>
+      <ellipse cx="24.5" cy="52" rx="4.6" ry="3" fill="#F8B8C4"/><ellipse cx="55.5" cy="52" rx="4.6" ry="3" fill="#F8B8C4"/>
+      <path class="m-smile" d="M36.5 52 Q40 55.5 43.5 52" stroke="#333" fill="none" stroke-width="2" stroke-linecap="round"/>
+      <path class="m-open" d="M35.5 50.5 Q40 59 44.5 50.5 Z" fill="#E86A7C" stroke="#333" stroke-width="1.6" stroke-linejoin="round"/>
+    </svg>`;
+  document.body.appendChild(mascotEl);
+  mascotEl.style.display = mascotOff() ? 'none' : '';
+}
+const MASCOT_TALK = ['今日もコツコツいこう🌱', '入力するたびに、ゲージが育つよ！', '気になる案件、次のアクションは決めた？', '空欄をひとつ埋めるだけでも、えらい✨', 'ちょっと休憩も大事だよ〜☕'];
+const SAVE_MSGS = ['保存したよ！えらい✨', '記録ありがとう〜！', 'ナイス入力！', 'きれいに入ったよ🌷'];
+function mascotSay(text, mood, ms){
+  if(mascotOff()) return;
+  mascotInit();
+  const b = document.getElementById('mBubble');
+  b.textContent = text;
+  b.classList.add('show');
+  mascotEl.classList.remove('happy'); void mascotEl.offsetWidth;
+  if(mood === 'happy') mascotEl.classList.add('happy');
+  clearTimeout(mascotTimer);
+  mascotTimer = setTimeout(() => { b.classList.remove('show'); mascotEl.classList.remove('happy'); }, ms || 5200);
+}
+function toggleMascot(){
+  lsSet(MASCOT_OFF_KEY, mascotOff() ? '0' : '1');
+  mascotInit();
+  mascotEl.style.display = mascotOff() ? 'none' : '';
+  if(!mascotOff()) mascotSay('よろしくね！🌱', 'happy');
+  renderFunBar();
+}
+function mascotGreet(){
+  if(greeted) return;
+  greeted = true;
+  const hr = new Date().getHours();
+  const hello = hr < 11 ? 'おはよう！' : (hr < 18 ? 'お疲れさま！' : '遅くまでお疲れさま！');
+  const c = dailyCounts();
+  const msg = c.overdue ? `期限が過ぎてる案件が${c.overdue}件あるよ…！見てみよう`
+    : c.today ? `今日が期限の案件が${c.today}件！ファイト✨`
+    : c.stale ? `止まってる案件が${c.stale}件。声をかけてみる？`
+    : '今日もいい感じだよ🌷';
+  mascotSay(hello + msg, 'happy', 6500);
+}
+// 保存したあとのひとこと（入力が増えたことをほめる）
+function funAfterSave(before, changes, wonNow){
+  if(wonNow) return;   // 受注・完了のお祝いは別に出る
+  const a = completeness(Object.assign({}, before, changes)), b = completeness(before);
+  if(a.done === a.total && b.done < b.total){
+    launchConfetti(BASE_TIER);
+    mascotSay('入力ぜんぶ埋まった！ぴかぴか✨', 'happy', 6000);
+  } else if(a.done > b.done){
+    mascotSay(`${a.done - b.done}項目入力！あと${a.total - a.done}個で完璧（${a.missing[0]}など）`, 'happy');
+  } else {
+    mascotSay(pickOne(SAVE_MSGS), 'happy');
+  }
+}
+let targetsRequested = false;
+async function loadTargetsBg(){
+  try{
+    const r = await gasGet('target_list');
+    targetsOk = (r.status === 'success');
+    if(targetsOk) targets = r.data;
+  }catch(e){ targetsOk = false; }
+  renderFunBar();
+  checkMilestones();
+}
+
 // ==== 前回取得したデータをブラウザに保存し、次回起動時に即表示する ====
 const DEALS_CACHE_KEY = 'sinchoku_deals_cache_v1';
 function loadDealsCache(){
@@ -1993,6 +2214,8 @@ async function loadDeals(){
 
     saveDealsCache(res.data);
     applyDealsToView(dedupedData);
+    if(!targetsRequested){ targetsRequested = true; loadTargetsBg(); } else { checkMilestones(); }
+    mascotGreet();
     const now = new Date();
     document.getElementById('lastUpdated').textContent =
       '最終更新 ' + String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0') + ':' + String(now.getSeconds()).padStart(2,'0');
