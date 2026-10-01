@@ -106,6 +106,7 @@ function doPost(e) {
       case 'deal_extra_upsert': result = dealExtraUpsert(payload.data || payload); break;
       case 'deal_core_update':  result = dealCoreUpdate(payload.data || payload); break;
       case 'deal_core_create':  result = dealCoreCreate(payload.data || payload); break;
+      case 'values_rename':     result = valuesRename(payload.data || payload); break;
       case 'deal_conflict_check': return dealConflictCheck(payload.data || payload);
       case 'target_save':       return targetSave(payload.data || payload);
       default:                  return makeErr('不明なaction: ' + action);
@@ -450,6 +451,58 @@ function targetSave(data) {
     return makeRes({ fy: fy });
   } catch (err) {
     return makeErr('targetSave error: ' + err.toString());
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ════════════════════════════════════════════════
+// 表記ゆれの一括統一（顧客名・現場名・源泉・担当者・仕入先）
+// from に挙げた値と完全一致するセルだけを to に書き換える（値が違うセルには触れない）
+// ════════════════════════════════════════════════
+
+const RENAMEABLE_FIELDS = ['customerName', 'siteName', 'source', 'assignee'];
+
+function valuesRename(data) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const field = data.field;
+    const to = String(data.to === undefined || data.to === null ? '' : data.to).trim();
+    const from = (data.from || []).map(String);
+    if (!to || !from.length) return makeErr('統一先または統一元が指定されていません');
+    const fromSet = {};
+    from.forEach(v => { fromSet[v] = true; });
+
+    let changed = 0;
+    if (field === 'supplier') {
+      const sh = ensureExtraSheet_();
+      const vals = sh.getDataRange().getValues();
+      const col = vals[0].indexOf('supplier');
+      if (col < 0) return makeErr('仕入先の列が見つかりません');
+      for (let i = 1; i < vals.length; i++) {
+        const v = String(vals[i][col]);
+        if (fromSet[v] && v !== to) { sh.getRange(i + 1, col + 1).setValue(to); changed++; }
+      }
+    } else if (RENAMEABLE_FIELDS.indexOf(field) >= 0) {
+      SOURCE_SHEETS.forEach(name => {
+        const sh = sheet(name);
+        if (!sh) return;
+        const lastRow = sh.getLastRow();
+        if (lastRow < DATA_START_ROW) return;
+        const col = COL[field];
+        const vals = sh.getRange(DATA_START_ROW, col, lastRow - DATA_START_ROW + 1, 1).getValues();
+        vals.forEach((r, i) => {
+          const v = String(r[0]);
+          if (fromSet[v] && v !== to) { sh.getRange(DATA_START_ROW + i, col).setValue(to); changed++; }
+        });
+      });
+    } else {
+      return makeErr('対象外の項目です: ' + field);
+    }
+    return makeRes({ changed: changed });
+  } catch (err) {
+    return makeErr('valuesRename error: ' + err.toString());
   } finally {
     lock.releaseLock();
   }

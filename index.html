@@ -265,6 +265,11 @@
   .tg-input{ width:92px; padding:4px 6px; border:1px solid var(--line); border-radius:5px; text-align:right; font-family:'IBM Plex Mono',monospace; font-size:12.5px; }
   .sim-hint{ font-size:11.5px; margin-top:4px; color:var(--amber); line-height:1.7; }
   .sim-hint button{ border:1px solid var(--amber); background:#fff; color:var(--ink); border-radius:999px; padding:1px 9px; margin:0 3px 2px 0; font-size:11.5px; cursor:pointer; font-family:inherit; }
+  .name-group{ border:1px solid var(--line); border-radius:8px; padding:8px 11px; margin-bottom:9px; }
+  .name-group label.opt{ display:block; font-size:13px; padding:2px 0; cursor:pointer; }
+  .name-group .cnt{ color:var(--ink-soft); font-size:11.5px; margin-left:4px; }
+  .name-group .row{ display:flex; gap:8px; align-items:center; margin-top:6px; flex-wrap:wrap; }
+  .name-group input.custom{ flex:1 1 160px; padding:5px 8px; border:1px solid var(--line); border-radius:6px; font-size:12.5px; font-family:inherit; }
   .ana-h{ font-size:12.5px; font-weight:700; margin:16px 0 6px; }
   .ana-reason{ font-size:12px; line-height:1.6; padding:6px 0; border-bottom:1px solid var(--line); }
   .ana-reason .m{ color:var(--ink-soft); font-size:10.5px; }
@@ -568,6 +573,19 @@
     <div class="ana-tabs" id="anaTabs"></div>
     <div id="anaBody"></div>
     <div class="modal-actions"><button class="btn btn-primary" id="btnAnaClose">閉じる</button></div>
+  </div>
+</div>
+
+<div class="overlay" id="nameOverlay">
+  <div class="modal cash-modal">
+    <h2>🧹 表記ゆれを直す</h2>
+    <div class="cash-sub">
+      「(株)」と「株式会社」、全角と半角、空白や記号の違いなど、<b>同じ名前なのに書き方が違うもの</b>を探して、ひとつの名前にそろえます。<br>
+      統一すると、<b>元のシート（または追加情報シート）の該当セルが書き換わります</b>。よく使う書き方をえらんでください。
+    </div>
+    <div class="ana-tabs" id="nameTabs"></div>
+    <div id="nameBody"></div>
+    <div class="modal-actions"><button class="btn btn-primary" id="btnNameClose">閉じる</button></div>
   </div>
 </div>
 
@@ -1078,6 +1096,75 @@ async function openAnalysisPanel(){
   renderFunBar();
   if(document.getElementById('anaOverlay').classList.contains('open') && !anaEditTarget) renderAnalysis();
 }
+
+// ==== 表記ゆれの一括統一 ====
+const NAME_FIELDS = [
+  { key: 'customerName', label: '顧客名' }, { key: 'siteName', label: '現場名' },
+  { key: 'source', label: '源泉' }, { key: 'assignee', label: '担当者' }, { key: 'supplier', label: '仕入先' }
+];
+let nameTab = 'customerName';
+let nameGroupsNow = [];
+function buildNameGroups(key){
+  const map = {};
+  deals.forEach(d => {
+    const v = d[key];
+    if(v === '' || v == null) return;
+    const raw = String(v), k = normName(raw);
+    if(!k) return;
+    map[k] = map[k] || {};
+    map[k][raw] = (map[k][raw] || 0) + 1;
+  });
+  return Object.keys(map).map(k => {
+    const variants = Object.keys(map[k]).map(name => ({ name, count: map[k][name] }))
+      .sort((a, b) => b.count - a.count || a.name.length - b.name.length);
+    return { variants, total: variants.reduce((s, v) => s + v.count, 0) };
+  }).filter(g => g.variants.length > 1).sort((a, b) => b.total - a.total);
+}
+function renderNamePanel(){
+  document.getElementById('nameTabs').innerHTML = NAME_FIELDS.map(f => {
+    const n = buildNameGroups(f.key).length;
+    return `<button class="${f.key === nameTab ? 'active' : ''}" onclick="nameTab='${f.key}'; renderNamePanel();">${f.label}${n ? '（' + n + '）' : ''}</button>`;
+  }).join('');
+  nameGroupsNow = buildNameGroups(nameTab);
+  const body = document.getElementById('nameBody');
+  if(!nameGroupsNow.length){
+    body.innerHTML = '<div class="cash-note">この項目に、表記ゆれは見つかりませんでした 🎉</div>';
+    return;
+  }
+  body.innerHTML = nameGroupsNow.map((g, gi) => `<div class="name-group">
+    ${g.variants.map((v, vi) => `<label class="opt"><input type="radio" name="ng-${gi}" value="${vi}" ${vi === 0 ? 'checked' : ''}> 「${escapeHtml(v.name)}」<span class="cnt">${v.count}件</span></label>`).join('')}
+    <div class="row"><input class="custom" id="ng-custom-${gi}" placeholder="どれでもない別の書き方にする（任意）">
+      <button class="btn btn-primary" onclick="applyNameGroup(${gi})">この名前に統一</button></div>
+  </div>`).join('');
+}
+async function applyNameGroup(gi){
+  const g = nameGroupsNow[gi];
+  if(!g) return;
+  const custom = document.getElementById('ng-custom-' + gi).value.trim();
+  const checked = document.querySelector(`input[name="ng-${gi}"]:checked`);
+  const to = custom || (checked ? g.variants[Number(checked.value)].name : '');
+  if(!to) return;
+  const from = g.variants.map(v => v.name).filter(n => n !== to);
+  const cnt = g.variants.filter(v => v.name !== to).reduce((s, v) => s + v.count, 0);
+  if(!from.length){ showToast('すでに同じ名前です'); return; }
+  if(!confirm(`${from.map(n => '「' + n + '」').join('')}（計${cnt}件）を\n「${to}」に統一します。\n元のシートのセルが書き換わります。よろしいですか？`)) return;
+  try{
+    const res = await gasPost('values_rename', { field: nameTab, from, to });
+    if(res.status !== 'success'){ alert('統一に失敗しました：' + res.data); return; }
+    showToast(`✅ 「${to}」に統一しました（${res.data.changed}セルを書き換え）`);
+    await loadDeals({ force: true });
+    renderNamePanel();
+  }catch(e){
+    alert('統一に失敗しました：' + (e && e.message ? e.message : e));
+  }
+}
+function openNamePanel(){
+  renderNamePanel();
+  document.getElementById('nameOverlay').classList.add('open');
+}
+document.getElementById('btnNameClose').addEventListener('click', () => document.getElementById('nameOverlay').classList.remove('open'));
+document.getElementById('nameOverlay').addEventListener('click', e => { if(e.target.id === 'nameOverlay') e.target.classList.remove('open'); });
+
 document.getElementById('btnAnaClose').addEventListener('click', () => document.getElementById('anaOverlay').classList.remove('open'));
 document.getElementById('anaOverlay').addEventListener('click', e => { if(e.target.id === 'anaOverlay') e.target.classList.remove('open'); });
 
@@ -1621,6 +1708,7 @@ function render(){
     ${unreadCount ? `<div class="s-item"><span class="s-label">現在状況の更新（未確認）</span><span class="s-val s-warn">${unreadCount}件<button class="btn btn-ghost btn-mini" onclick="markAllSeen()">すべて既読にする</button></span></div>` : ''}
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openCashPanel()">💴 仕入・入金見込</button></div>
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openAnalysisPanel()">📊 受注率・分析</button></div>
+    <div class="s-item s-action"><button class="btn btn-ghost" onclick="openNamePanel()">🧹 表記ゆれ</button></div>
   `;
 
   document.getElementById('lostCol').style.display = showLost ? 'flex' : 'none';
