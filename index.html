@@ -439,7 +439,7 @@
     <div class="sub"><span id="lastUpdated">未取得</span></div>
   </div>
   <div class="header-right">
-    <input type="text" id="searchBox" placeholder="🔍 検索">
+    <input type="text" id="searchBox" placeholder="🔍 フリー検索（スペースでAND／-語で除外）">
     <button class="btn btn-ghost" id="btnToggleFilters">絞り込み <span id="filterCount" class="filter-count-badge" style="display:none;"></span></button>
     <button class="btn btn-primary" id="btnNew">＋ 新規</button>
   </div>
@@ -1410,12 +1410,37 @@ function amountOf(d){
   return isNaN(n) ? 0 : n;
 }
 
+// ==== フリー検索（全項目・複数語のAND・「-語」で除外・全角半角/大小/カタカナひらがな不問） ====
+function normSearch(s){
+  return String(s == null ? '' : s).normalize('NFKC').toLowerCase()
+    .replace(/[\u30a1-\u30f6]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));   // カタカナ→ひらがな
+}
+function searchBlob(d){
+  const st = effStatus(d);
+  const parts = [
+    d.branches && d.branches.length ? d.branches.join(' ') : d.branch, d.dealNo, d.no, d.rowNum ? d.rowNum + '行目' : '',
+    d.customerName, d.siteName, d.projectName, d.summary, d.source, d.assignee, d.rank,
+    d.currentStatus, d.pendingIssue, d.lostReason, d.winFactor, d.supplier, d.paymentTerms, d.nextActionNote,
+    st, st === '見積中' ? '見積提出済' : '', d.expectedOrderMonth, d.receiptMonth, d.billingMonth,
+    d.quoteAmount, d.confirmedAmount, d.purchaseAmount
+  ];
+  return normSearch(parts.filter(v => v !== '' && v != null).join(' '));
+}
+// 検索語を「含む語」と「除外語（先頭に - を付けた語）」に分ける
+function parseSearchTerms(q){
+  const inc = [], exc = [];
+  normSearch(q).split(/[\s　]+/).filter(Boolean).forEach(t => {
+    if(t.length > 1 && (t[0] === '-' || t[0] === '−')) exc.push(t.slice(1)); else inc.push(t);
+  });
+  return { inc, exc };
+}
 function visibleDeals(){
-  const kw = searchVal.trim().toLowerCase();
-  const exKw = excludeVal.trim().toLowerCase();
+  const sq = parseSearchTerms(searchVal);
+  const exTerms = normSearch(excludeVal).split(/[\s　]+/).filter(Boolean);
+  const incTerms = sq.inc, excTerms = sq.exc.concat(exTerms);
+  const useText = incTerms.length > 0 || excTerms.length > 0;
   const min = minAmountVal !== '' ? Number(minAmountVal) : null;
   const max = maxAmountVal !== '' ? Number(maxAmountVal) : null;
-  const matchFields = d => [d.siteName, d.customerName, d.projectName, d.summary, d.assignee, d.source, d.dealNo];
   return deals.filter(d =>
     (!branchFilterVal || (d.branches ? d.branches.includes(branchFilterVal) : d.branch === branchFilterVal)) &&
     (!assigneeFilterVal || d.assignee === assigneeFilterVal) &&
@@ -1424,8 +1449,10 @@ function visibleDeals(){
     (!orderMonthFilterVal || d.expectedOrderMonth === orderMonthFilterVal) &&
     (min === null || amountOf(d) >= min) &&
     (max === null || amountOf(d) <= max) &&
-    (!kw || matchFields(d).some(v => String(v||'').toLowerCase().includes(kw))) &&
-    (!exKw || !matchFields(d).some(v => String(v||'').toLowerCase().includes(exKw)))
+    (!useText || (() => {
+      const b = searchBlob(d);
+      return incTerms.every(t => b.includes(t)) && !excTerms.some(t => b.includes(t));
+    })())
   );
 }
 
