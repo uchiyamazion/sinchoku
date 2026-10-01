@@ -208,6 +208,8 @@
   .mascot.worry svg{ animation:m-shake .35s ease-in-out 4; }
   .m-bubble{ position:relative; max-width:230px; background:#fff; border:2px solid #F3B5C2; color:#5a4646; border-radius:16px; font-weight:600; padding:7px 11px; font-size:12px; line-height:1.6; opacity:0; transform:translateY(6px); transition:all .25s; pointer-events:none; }
   .m-bubble.show{ opacity:1; transform:none; }
+  .m-bubble.act.show{ pointer-events:auto; cursor:pointer; }
+  .m-bubble .m-go{ display:block; font-size:10.5px; color:#d27a8c; margin-top:2px; }
   .m-bubble::after{ content:''; position:absolute; right:22px; bottom:-8px; width:12px; height:12px; background:#fff; border-right:2px solid #F3B5C2; border-bottom:2px solid #F3B5C2; transform:rotate(45deg); }
   @keyframes m-shake{ 0%,100%{ transform:translateX(0);} 25%{ transform:translateX(-3px);} 75%{ transform:translateX(3px);} }
   @keyframes m-float{ 0%,100%{ transform:translateY(0);} 50%{ transform:translateY(-4px);} }
@@ -2006,6 +2008,33 @@ function dailyCounts(){
   });
   return { overdue, today, stale };
 }
+// いちばん急ぎの案件（期限超過が最優先、次に停滞日数の多いもの）
+function topUrgentDeal(){
+  let best = null, bestScore = -1;
+  deals.forEach(d => {
+    const ns = nextActionState(d), sd = staleDaysOf(d);
+    let score = -1;
+    if(ns === 'overdue'){ const late = Math.floor((todayStart().getTime() - new Date(d.nextActionDate).getTime()) / 86400000); score = 100000 + late; }
+    else if(ns === 'today') score = 50000;
+    else if(sd !== null) score = sd;
+    if(score > bestScore){ bestScore = score; best = d; }
+  });
+  return best;
+}
+function dealLabel(d){
+  const n = d.siteName || d.projectName || d.customerName || d.dealNo || '(名称なし)';
+  return '「' + (n.length > 16 ? n.slice(0, 16) + '…' : n) + '」';
+}
+function urgentPhrase(d){
+  const ns = nextActionState(d), sd = staleDaysOf(d);
+  if(ns === 'overdue'){
+    const late = Math.floor((todayStart().getTime() - new Date(d.nextActionDate).getTime()) / 86400000);
+    return `${dealLabel(d)}、${d.nextActionNote ? '「' + d.nextActionNote + '」の' : ''}期限${late}日過ぎてるよ`;
+  }
+  if(ns === 'today') return `${dealLabel(d)}、今日が期限だよ`;
+  return `${dealLabel(d)}、${sd}日ほったらかしだよ`;
+}
+function openDealFromBubble(d){ openModal(d); }
 function showFollowOnly(){
   followOnlyVal = true;
   document.getElementById('followOnlyCheck').checked = true;
@@ -2085,7 +2114,7 @@ function mascotInit(){
   mascotEl = document.createElement('div');
   mascotEl.className = 'mascot';
   mascotEl.innerHTML = `<div class="m-bubble" id="mBubble"></div>
-    <svg viewBox="0 0 80 80" onclick="mascotSay(pickOne(MASCOT_TALK), 'happy')">
+    <svg viewBox="0 0 80 80" onclick="mascotPoke()">
       <path d="M40 25 q-2 -9 -10 -9 q0 8 10 9 M40 25 q2 -9 10 -9 q0 8 -10 9" fill="#9BD9A4" stroke="#6B5555" stroke-width="1.8" stroke-linejoin="round"/>
       <ellipse class="m-arm m-arm-l" cx="14" cy="53" rx="6.5" ry="4.8" fill="#fff" stroke="#6B5555" stroke-width="2.2"/>
       <ellipse class="m-arm m-arm-r" cx="66" cy="53" rx="6.5" ry="4.8" fill="#fff" stroke="#6B5555" stroke-width="2.2"/>
@@ -2110,11 +2139,17 @@ function mascotInit(){
 }
 const MASCOT_TALK = ['まだ空欄あるでしょ？見逃さないよ😏', '次のアクション決めてない案件、あるよね？', 'ボクのゲージ、まだ満たせないの〜？', 'え、その案件まだそのまま？ふーん…😏', 'やればできる人でしょ？知ってるよ', '入力サボってると、ボク拗ねるよ？'];
 const SAVE_MSGS = ['お、やるじゃん。えらいえらい😏', 'ふーん、ちゃんと入力できるんだ', 'やっと入れたね〜。ナイス！', 'はい保存完了。やればできるじゃん'];
-function mascotSay(text, mood, ms){
+function mascotSay(text, mood, ms, action){
   if(mascotOff()) return;
   mascotInit();
   const b = document.getElementById('mBubble');
   b.textContent = text;
+  b.onclick = null; b.classList.toggle('act', !!action);
+  if(action){
+    const go = document.createElement('span'); go.className = 'm-go'; go.textContent = '▶ 押すと開くよ';
+    b.appendChild(go);
+    b.onclick = () => { b.classList.remove('show'); action(); };
+  }
   b.classList.add('show');
   mascotEl.classList.remove('happy', 'worry', 'smug'); void mascotEl.offsetWidth;
   if(mood === 'happy' || mood === 'worry' || mood === 'smug') mascotEl.classList.add(mood);
@@ -2128,17 +2163,29 @@ function toggleMascot(){
   if(!mascotOff()) mascotSay('お、戻ってきたね。さみしかったんだけど😏', 'happy');
   renderFunBar();
 }
+function mascotPoke(){
+  const top = topUrgentDeal();
+  if(top && Math.random() < 0.6){
+    mascotSay(urgentPhrase(top) + '。ほら、見てよ😏', 'smug', 8000, () => openDealFromBubble(top));
+  } else {
+    mascotSay(pickOne(MASCOT_TALK), 'happy');
+  }
+}
 function mascotGreet(){
   if(greeted) return;
   greeted = true;
   const hr = new Date().getHours();
   const hello = hr < 11 ? 'おはよ。' : (hr < 18 ? 'お疲れ〜。' : 'まだいたの？遅くまでお疲れ。');
   const c = dailyCounts();
-  const msg = c.overdue ? `期限切れが${c.overdue}件。見て見ぬふり、してないよね？😏`
-    : c.today ? `今日が期限の案件が${c.today}件。余裕だよね？…ほんとに？`
-    : c.stale ? `${c.stale}件、ほったらかしだよ。お客さん待ってるかもよ〜`
-    : 'おっ、今日は優秀じゃん。明日も続くかな？';
-  mascotSay(hello + msg, (c.overdue || c.stale) ? 'smug' : 'happy', 6500);
+  const top = topUrgentDeal();
+  const total = c.overdue + c.today + c.stale;
+  if(!top){
+    mascotSay(hello + 'おっ、今日は優秀じゃん。明日も続くかな？', 'happy', 6500);
+    return;
+  }
+  const more = total > 1 ? `（ほかに${total - 1}件）` : '';
+  const tail = c.overdue ? '見て見ぬふり、してないよね？😏' : (c.today ? '余裕だよね？…ほんとに？' : 'お客さん待ってるかもよ〜');
+  mascotSay(hello + urgentPhrase(top) + more + '。' + tail, 'smug', 9000, () => openDealFromBubble(top));
 }
 // 保存したあとのひとこと（入力が増えたことをほめる）
 function funAfterSave(before, changes, wonNow){
