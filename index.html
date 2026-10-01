@@ -1755,7 +1755,17 @@ document.querySelectorAll('.col-body').forEach(body => {
     }
     const res = await gasPost('deal_extra_upsert', Object.assign({}, deal, { baseUpdatedAt: deal.updatedAt || '', force: dropForce }));
     if(res.status === 'success'){
-      showToast('✅ ' + dealLabel(deal).slice(1, -1) + ' を「' + newStatus + '」に移動しました');
+      let msg = '✅ ' + dealLabel(deal).slice(1, -1) + ' を「' + newStatus + '」に移動しました';
+      // 失注に移したら、ランクもEにそろえる（元シートのランク列を更新）
+      if(newStatus === '失注' && deal.rank !== 'E'){
+        const rr = await gasPost('deal_core_update', {
+          id: deal.id, branch: deal.branch, rowNum: deal.rowNum, origDealNo: deal.dealNo,
+          rank: 'E', changedCore: ['rank'], baseCore: { rank: deal.rank }, force: true
+        });
+        if(rr.status === 'success'){ deal.rank = 'E'; render(); msg += '（ランクもEに変更）'; }
+        else { msg += '（ランクをEにできませんでした）'; }
+      }
+      showToast(msg);
     } else {
       showToast('⚠ 保存できませんでした。再読み込みします', 'err');
       await loadDeals();
@@ -1904,6 +1914,13 @@ document.getElementById('btnReset').addEventListener('click', () => {
 });
 document.getElementById('btnCancel').addEventListener('click', closeModal);
 overlay.addEventListener('click', e => { if(e.target === overlay) closeModal(); });
+
+// ステータスを「失注」にしたら、ランクもEにする（保存時に元シートへ反映される）
+document.getElementById('f-status').addEventListener('change', e => {
+  if(e.target.value !== '失注') return;
+  const r = document.getElementById('c-rank');
+  if(r.value !== 'E'){ r.value = 'E'; showToast('ランクもEにしました（保存で反映されます）'); }
+});
 
 document.getElementById('btnSave').addEventListener('click', async () => {
   const btn = document.getElementById('btnSave');
