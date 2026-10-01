@@ -1188,8 +1188,10 @@ async function gasGetWithProgress(action, onProgress){
     onProgress({ elapsed: (Date.now() - start) / 1000, percent: null });
   }, 200);
 
+  const ctl = new AbortController();
+  const tmo = setTimeout(() => ctl.abort(), 60000);
   try{
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: ctl.signal });
     const contentLength = res.headers.get('Content-Length');
 
     if(contentLength && res.body && res.body.getReader){
@@ -1212,7 +1214,11 @@ async function gasGetWithProgress(action, onProgress){
       onProgress({ elapsed: (Date.now() - start) / 1000, percent: 100 });
       return json;
     }
+  } catch(e){
+    if(e && e.name === 'AbortError') throw new Error('GASが60秒たっても応答しませんでした');
+    throw e;
   } finally {
+    clearTimeout(tmo);
     clearInterval(timer);
   }
 }
@@ -1743,7 +1749,7 @@ document.querySelectorAll('.col-body').forEach(body => {
     const chk = await gasPost('deal_conflict_check', { extraId: deal.id, baseUpdatedAt: deal.updatedAt || '' });
     if(chk.status === 'success' && chk.data.extra){
       if(!confirm('他の人がこの案件を ' + fmtDateTime(chk.data.extra.updatedAt) + ' に更新しています。\nこのままステータスを変更（上書き）しますか？')){
-        await loadDeals();
+        await loadDeals({ force: true });
         return;
       }
       dropForce = true;
@@ -1768,7 +1774,7 @@ document.querySelectorAll('.col-body').forEach(body => {
       showToast(msg);
     } else {
       showToast('⚠ 保存できませんでした。再読み込みします', 'err');
-      await loadDeals();
+      await loadDeals({ force: true });
       return;
     }
     if(res.status === 'success' && res.data.conflicts && res.data.conflicts.length){
@@ -1946,7 +1952,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
       if(extraRes.status !== 'success'){ alert('追加情報の保存に失敗しました：' + extraRes.data); }
       else showToast('✅ 新規案件を登録しました（' + branch + 'シート ' + (createRes.data.no !== undefined && createRes.data.no !== '' ? 'No.' + createRes.data.no + '・' : '') + createRes.data.rowNum + '行目）');
       mascotSay('新規案件、ゲット？ちゃんと追いかけなよ〜', 'happy');
-      await loadDeals();
+      await loadDeals({ force: true });
       closeModal();
       return;
     }
@@ -2006,7 +2012,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
     }
     showToast('✅ 保存しました' + (currentDeal.siteName || currentDeal.customerName ? '（' + dealLabel(currentDeal).slice(1, -1) + '）' : ''));
     funAfterSave(currentDeal, Object.assign({}, coreData, extraData), (newStatusVal === '受注' || newStatusVal === '完了') && newStatusVal !== prevStatus);
-    await loadDeals();
+    await loadDeals({ force: true });
     closeModal();
   } catch(e){
     alert('保存に失敗しました：' + (e && e.message ? e.message : e));
@@ -2383,7 +2389,30 @@ function applyDealsToView(list){
   render();
 }
 
-async function loadDeals(){
+let loadPromise = null, reloadQueued = false;
+// 同時に1つだけ実行する。保存直後など {force:true} のときは、実行中の取得が終わってからもう一度取り直す
+function loadDeals(opts){
+  if(loadPromise){
+    if(opts && opts.force) reloadQueued = true;
+    return loadPromise;
+  }
+  loadPromise = (async () => {
+    try{ await loadDealsInner(); }
+    catch(e){
+      console.error(e);
+      document.getElementById('lastUpdated').textContent = '⚠ 取得に失敗（' + (e && e.message ? e.message : e) + '）。次の自動更新で再試行します';
+      loadingOverlay.classList.add('hidden');
+      document.getElementById('board').style.display = 'flex';
+      isFirstLoad = false;
+    }
+    finally { loadPromise = null; }
+  })().then(() => {
+    if(reloadQueued){ reloadQueued = false; return loadDeals(); }
+  });
+  return loadPromise;
+}
+
+async function loadDealsInner(){
   const cachedObj = isFirstLoad ? loadDealsCache() : null;
   const showOverlay = isFirstLoad && !cachedObj;
   if(cachedObj){
@@ -2400,8 +2429,12 @@ async function loadDeals(){
     document.getElementById('board').style.display = 'none';
   }
 
+  const cachedLabel = cachedObj ? (() => { const c = new Date(cachedObj.savedAt); return '前回表示 ' + String(c.getHours()).padStart(2,'0') + ':' + String(c.getMinutes()).padStart(2,'0'); })() : '';
   const onProgress = ({ elapsed, percent }) => {
-    if(!showOverlay) return;
+    if(!showOverlay){
+      if(cachedObj) document.getElementById('lastUpdated').textContent = cachedLabel + '（最新を取得中… ' + Math.floor(elapsed) + '秒）';
+      return;
+    }
     const secs = elapsed.toFixed(1);
     loadingText.textContent = (percent !== null && percent !== undefined)
       ? `読み込み中… ${percent}%（${secs}秒経過）`
@@ -2454,6 +2487,7 @@ async function loadDeals(){
 const POLL_INTERVAL_MS = 30000;
 function startPolling(){
   setInterval(() => {
+    if(document.hidden) return;   // 別のタブを見ている間は取得しない（GASへの負荷を減らす）
     if(overlay.classList.contains('open')) return;
     if(document.querySelector('.card.dragging')) return;
     loadDeals();
