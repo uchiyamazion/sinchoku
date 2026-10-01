@@ -1320,7 +1320,7 @@ function celebrateStatusChange(deal){
   const tier = getDealTier(amountOf(deal));
   launchConfetti(tier);
   if(tier.banner) showBigDealBanner(deal, tier);
-  mascotSay(tier.banner ? 'えっ、でかっ！…やるじゃん🎉' : 'お、受注じゃん！やるね〜🎉', 'happy', 6000);
+  praiseProgress(deal.status === '完了' ? 'done' : 'won');
 }
 
 
@@ -1733,6 +1733,7 @@ document.querySelectorAll('.col-body').forEach(body => {
     const newStatus = body.closest('.col').dataset.status;
     const deal = deals.find(d => d.id === id);
     if(!deal || (deal.status||'') === newStatus) return;
+    const oldEff = effStatus(deal);
 
     if(newStatus === '失注' && !deal.lostReason){
       const reason = prompt('失注理由を入力してください：');
@@ -1772,6 +1773,8 @@ document.querySelectorAll('.col-body').forEach(body => {
         else { msg += '（ランクをEにできませんでした）'; }
       }
       showToast(msg);
+      const pk = kindOfStatus(newStatus);
+      if(pk && newStatus !== '受注' && newStatus !== '完了' && (isForwardMove(oldEff, newStatus) || newStatus === '失注')) praiseProgress(pk);
     } else {
       showToast('⚠ 保存できませんでした。再読み込みします', 'err');
       await loadDeals({ force: true });
@@ -1951,7 +1954,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
       const extraRes = await gasPost('deal_extra_upsert', extraData);
       if(extraRes.status !== 'success'){ alert('追加情報の保存に失敗しました：' + extraRes.data); }
       else showToast('✅ 新規案件を登録しました（' + branch + 'シート ' + (createRes.data.no !== undefined && createRes.data.no !== '' ? 'No.' + createRes.data.no + '・' : '') + createRes.data.rowNum + '行目）');
-      mascotSay('新規案件、ゲット？ちゃんと追いかけなよ〜', 'happy');
+      praiseProgress('new');
       await loadDeals({ force: true });
       closeModal();
       return;
@@ -2341,18 +2344,56 @@ function mascotGreet(){
   const tail = c.overdue ? '見て見ぬふり、してないよね？😏' : (c.today ? '余裕だよね？…ほんとに？' : 'お客さん待ってるかもよ〜');
   mascotSay(hello + urgentPhrase(top) + more + '。' + tail, 'smug', 9000, () => openDealFromBubble(top));
 }
-// 保存したあとのひとこと（入力が増えたことをほめる）
+// ==== 進捗をほめる ====
+const STATUS_ORDER = { '': 0, '見積中': 1, '受注': 2, '工事中': 3, '完了': 4 };
+function isForwardMove(from, to){ return STATUS_ORDER[to] !== undefined && STATUS_ORDER[to] > (STATUS_ORDER[from] || 0); }
+function kindOfStatus(to){ return ({ '完了': 'done', '受注': 'won', '工事中': 'construct', '見積中': 'quoted', '失注': 'lost' })[to] || null; }
+function progressCountToday(inc){
+  const t = new Date();
+  const key = 'sinchoku_prog_' + t.getFullYear() + String(t.getMonth() + 1).padStart(2, '0') + String(t.getDate()).padStart(2, '0');
+  const n = Number(lsGet(key) || 0) + (inc ? 1 : 0);
+  if(inc) lsSet(key, String(n));
+  return n;
+}
+const PRAISE = {
+  won: ['受注ーーっ！！すごいすごいすごい！！👏🎉', 'えっ受注！？最高すぎる…！ほんとにえらい！！✨', 'やったね〜！！粘り勝ちだよ、かっこよすぎる🎉', '受注おめでとう！！ここまで追いかけた努力が実ったね👏'],
+  done: ['完了おめでとう！！最後までやりきったね…えらすぎる👏', '案件ひとつ完走〜！！ほんとにお疲れさま、かっこいい✨', '完了！！ぜんぶ終わらせたの、ほんとにすごいよ🎉', 'おつかれさま！！やりきった自分をほめていいよ👏'],
+  construct: ['工事スタート！ここまで持ってきたの、ほんとにすごいよ👏', '工事中に進んだね！！着実だよ、えらい✨', 'いよいよ工事だね！！ここまでの段取り、お見事👏'],
+  quoted: ['見積、出せたね！！一歩前進、えらい〜！✨', '見積提出ナイス！！行動が早いよ👏', 'ちゃんと見積まで進めたの、すごい！！次につながるよ✨'],
+  lost: ['ちゃんと整理できてえらい！判断も立派だよ。次いこう✨', '結果をきちんと記録できたね、えらい！次はきっとうまくいくよ👏', 'つらい案件の整理、おつかれさま。ちゃんと前に進んでるよ✨'],
+  action: ['次のアクション決めたの、えらい！！動き出しが大事だよ👏', '次の一手まで決めてる…！デキる人だ✨', 'アクションを入れたの、最高！！案件が動くよ👏'],
+  full: ['ぜんぶ埋まった！！完璧すぎる…！✨👏', '入力コンプリート！！ここまで丁寧に書けるの、本当にすごい👏', '空欄ゼロ！！ぴっかぴか、えらすぎる✨'],
+  fill: i => `${i.gain}項目も入力できたね！すごい！あと${i.left}個で完璧だよ✨`,
+  save: ['保存ありがとう！こつこつ進めててほんとにえらい👏', '記録ばっちり！ちゃんと積み重ねてるね✨', '保存できたよ！その調子その調子👏'],
+  new: ['新しい案件、登録してくれてありがとう！！えらい！！👏', '新規案件ゲット！！動き出しが素晴らしいよ✨', '案件が増えたね！！ここから育てていこう🌱']
+};
+function praiseProgress(kind, info){
+  info = info || {};
+  const count = !info.nocount;
+  const n = progressCountToday(count);
+  const src = PRAISE[kind];
+  let msg = typeof src === 'function' ? src(info) : pickOne(src);
+  let ms = 6500;
+  if(count && n >= 2) msg += ` 今日${n}件目の進捗！`;
+  if(count && [3, 5, 10, 20].indexOf(n) >= 0){
+    msg += ' 🔥 今日、絶好調だよ！！';
+    launchConfetti(n >= 10 ? DEAL_TIERS[2] : BASE_TIER);
+    ms = 8500;
+  }
+  mascotSay(msg, 'happy', ms);
+}
+// 保存したあとのひとこと（進んだ分をめいっぱいほめる）
 function funAfterSave(before, changes, wonNow){
   if(wonNow) return;   // 受注・完了のお祝いは別に出る
-  const a = completeness(Object.assign({}, before, changes)), b = completeness(before);
-  if(a.done === a.total && b.done < b.total){
-    launchConfetti(BASE_TIER);
-    mascotSay('全部埋めたの？…優秀すぎ。ちょっと悔しい✨', 'happy', 6000);
-  } else if(a.done > b.done){
-    mascotSay(`${a.done - b.done}項目入力したね。あと${a.total - a.done}個で完璧。${a.missing[0]}が空いてるの、気づいてるからね😏`, 'happy');
-  } else {
-    mascotSay(pickOne(SAVE_MSGS), 'happy');
-  }
+  const after = Object.assign({}, before, changes);
+  const from = effStatus(before), to = effStatus(after);
+  const k = kindOfStatus(to);
+  if(from !== to && k && (isForwardMove(from, to) || to === '失注')){ praiseProgress(k); return; }
+  const a = completeness(after), b = completeness(before);
+  if(a.done === a.total && b.done < b.total){ launchConfetti(BASE_TIER); praiseProgress('full'); }
+  else if(!filled(before.nextActionDate) && filled(after.nextActionDate)) praiseProgress('action');
+  else if(a.done > b.done) praiseProgress('fill', { gain: a.done - b.done, left: a.total - a.done });
+  else praiseProgress('save', { nocount: true });
 }
 let targetsRequested = false;
 async function loadTargetsBg(){
