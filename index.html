@@ -1148,16 +1148,27 @@ function parseGasResponse(r){
     }
   });
 }
+// 応答が止まったままにならないよう、一定時間でタイムアウトさせる
+function fetchWithTimeout(url, opts, ms){
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  return fetch(url, Object.assign({}, opts, { signal: c.signal }))
+    .catch(e => {
+      if(e && e.name === 'AbortError') throw new Error(`GASが${Math.round(ms / 1000)}秒たっても応答しません。処理が済んでいる可能性があるので、スプレッドシートを確認してから、必要なら再保存してください。`);
+      throw e;
+    })
+    .finally(() => clearTimeout(t));
+}
 function gasGet(action, params={}){
   const qs = new URLSearchParams({ action, ...params }).toString();
-  return fetch(`${WEBAPP_URL}?${qs}`).then(parseGasResponse);
+  return fetchWithTimeout(`${WEBAPP_URL}?${qs}`, {}, 90000).then(parseGasResponse);
 }
 function gasPost(action, payload){
-  return fetch(WEBAPP_URL, {
+  return fetchWithTimeout(WEBAPP_URL, {
     method:'POST',
     headers:{ 'Content-Type':'text/plain;charset=utf-8' },
     body: JSON.stringify({ action, payload })
-  }).then(parseGasResponse);
+  }, 90000).then(parseGasResponse);
 }
 
 // 経過時間（＋Content-Lengthが取れれば%）を表示しながら取得する
@@ -1832,6 +1843,8 @@ overlay.addEventListener('click', e => { if(e.target === overlay) closeModal(); 
 document.getElementById('btnSave').addEventListener('click', async () => {
   const btn = document.getElementById('btnSave');
   btn.disabled = true; btn.textContent = '保存中…';
+  const saveT0 = Date.now();
+  const saveTick = setInterval(() => { btn.textContent = '保存中… ' + Math.floor((Date.now() - saveT0) / 1000) + '秒'; }, 1000);
 
   try{
     if(isNewMode){
@@ -1913,7 +1926,10 @@ document.getElementById('btnSave').addEventListener('click', async () => {
     funAfterSave(currentDeal, Object.assign({}, coreData, extraData), (newStatusVal === '受注' || newStatusVal === '完了') && newStatusVal !== prevStatus);
     await loadDeals();
     closeModal();
+  } catch(e){
+    alert('保存に失敗しました：' + (e && e.message ? e.message : e));
   } finally {
+    clearInterval(saveTick);
     btn.disabled = false; btn.textContent = '保存';
   }
 });
