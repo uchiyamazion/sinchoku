@@ -514,7 +514,7 @@
     </div>
     <div class="filter-field filter-field-checkbox">
       <label class="checkbox-label">
-        <input type="checkbox" id="followOnlyCheck"> 要フォロー（停滞・期限超過）のみ
+        <input type="checkbox" id="followOnlyCheck"> 要フォロー（期限超過・今日が期限）のみ
       </label>
     </div>
   </div>
@@ -704,6 +704,7 @@ let conflictOnlyVal = false;
 let unreadOnlyVal = false;
 let followOnlyVal = false;
 const STALE_DAYS = 14; // 見積提出済のまま動きがない日数の目安
+const STALE_ENABLED = false; // 停滞判定は無効（更新していても指摘されるため）。再び使う場合は true
 
 // ==== 仕入・入金の見込み ====
 function normMonth(v){
@@ -1305,6 +1306,7 @@ function elapsedBadge(deal){
 function todayStart(){ const t = new Date(); t.setHours(0,0,0,0); return t; }
 // 見積提出済のまま、最後の更新（または見積提出日）から STALE_DAYS 日以上動きがない場合の日数
 function staleDaysOf(d){
+  if(!STALE_ENABLED) return null;
   if(effStatus(d) !== '見積中') return null;
   const times = [d.updatedAt, d.quoteDate].map(v => v ? new Date(v).getTime() : NaN).filter(t => !isNaN(t));
   if(!times.length) return null;
