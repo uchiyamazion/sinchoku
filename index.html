@@ -324,7 +324,7 @@
   .overlay.open{ display:flex; }
   .modal{ background:var(--paper); border-radius:10px; width:100%; max-width:600px; padding:24px 24px 20px; box-shadow:0 20px 50px rgba(20,30,45,.3); }
   .modal h2{ margin:0 0 2px; font-size:16.5px; }
-  .sheet-no{ font-size:10px; color:var(--ink-soft); font-family:'IBM Plex Mono',monospace; margin-left:5px; }
+  .sheet-no{ font-size:11px; font-weight:600; color:var(--navy); background:#EEF2F7; border-radius:6px; padding:1px 6px; font-family:'IBM Plex Mono',monospace; margin-left:5px; }
   .modal .branch-tag{ display:inline-block; font-size:10.5px; font-weight:600; color:var(--navy); background:var(--navy-soft); padding:1px 7px; border-radius:8px; margin-bottom:8px; }
 
   .section-label{ font-size:11px; font-weight:700; color:var(--navy); margin:16px 0 8px; border-bottom:1px solid var(--navy-soft); padding-bottom:4px; }
@@ -1588,7 +1588,7 @@ function renderCard(d, hasConflict, justUpdated){
   el.innerHTML = `
     ${uInfo ? `<div class="status-flag">${unreadLabel(uInfo.kind)}</div>` : ''}
     ${justUpdated ? `<div class="updated-flag">✨ 更新されました</div>` : ''}
-    <span class="branch-tag">${escapeHtml((d.branches && d.branches.length > 1) ? d.branches.join(' / ') : d.branch)}</span>${d.no !== undefined && d.no !== '' ? `<span class="sheet-no" title="シート ${escapeHtml(d.branch)} の No.${escapeHtml(String(d.no))}（${d.rowNum}行目）">No.${escapeHtml(String(d.no))}</span>` : ''}
+    <span class="branch-tag">${escapeHtml((d.branches && d.branches.length > 1) ? d.branches.join(' / ') : d.branch)}</span>${sheetNoHtml(d)}
     <div class="cname">${escapeHtml(d.siteName || d.projectName || '(現場未設定)')}</div>
     <div class="pname">${escapeHtml(d.customerName||'')}${d.projectName && d.siteName ? '　' + escapeHtml(d.projectName) : ''}</div>
     <div class="row">
@@ -2038,6 +2038,14 @@ function completeness(d){
     c.push(['受注予定月', filled(d.expectedOrderMonth)], ['次回アクション', filled(d.nextActionDate)]);
   }
   return { done: c.filter(x => x[1]).length, total: c.length, missing: c.filter(x => !x[1]).map(x => x[0]) };
+}
+// カードに出す、シート側の番号（No列があればNo、なければ行番号）
+function sheetNoHtml(d){
+  if(!d.rowNum) return '';
+  const hasNo = d.no !== undefined && d.no !== '';
+  const label = hasNo ? 'No.' + d.no : d.rowNum + '行目';
+  const title = `シート「${d.branch}」${hasNo ? ' No.' + d.no + '／' : ''}${d.rowNum}行目`;
+  return `<span class="sheet-no" title="${escapeHtml(title)}">${escapeHtml(String(label))}</span>`;
 }
 function completenessBadge(d){
   const c = completeness(d);
