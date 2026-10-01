@@ -480,6 +480,7 @@
         <option value="occurredDateAsc">発生日が古い順</option>
         <option value="amountDesc">金額が大きい順</option>
         <option value="amountAsc">金額が小さい順</option>
+        <option value="expiryAsc">見積有効期限が近い順（失効が先頭）</option>
         <option value="elapsedDesc">経過日数が長い順</option>
         <option value="elapsedAsc">経過日数が短い順</option>
         <option value="rank">ランク順（S→A→B→C→E）</option>
@@ -519,6 +520,11 @@
     <div class="filter-field filter-field-checkbox">
       <label class="checkbox-label">
         <input type="checkbox" id="followOnlyCheck"> 要フォロー（期限超過・今日が期限）のみ
+      </label>
+    </div>
+    <div class="filter-field filter-field-checkbox">
+      <label class="checkbox-label">
+        <input type="checkbox" id="expiredOnlyCheck"> 見積の有効期限切れ・間近（7日以内）のみ
       </label>
     </div>
   </div>
@@ -708,6 +714,8 @@ let maxAmountVal = '';
 let conflictOnlyVal = false;
 let unreadOnlyVal = false;
 let followOnlyVal = false;
+let expiredOnlyVal = false;
+const QUOTE_VALID_MONTHS = 2;   // 見積の有効期限（月）
 const STALE_DAYS = 14; // 見積提出済のまま動きがない日数の目安
 const STALE_ENABLED = false; // 停滞判定は無効（更新していても指摘されるため）。再び使う場合は true
 
@@ -1340,6 +1348,29 @@ function nextActionState(d){
   return diff < 0 ? 'overdue' : (diff === 0 ? 'today' : 'soon');
 }
 function needsFollow(d){ return staleDaysOf(d) !== null || nextActionState(d) === 'overdue' || nextActionState(d) === 'today'; }
+// 見積の有効期限（見積提出日から2か月。提出日が無ければ発生日から計算）。見積提出済の案件だけが対象
+function quoteExpiry(d){
+  if(effStatus(d) !== '見積中') return null;
+  const base = d.quoteDate || d.occurredDate;
+  if(!base) return null;
+  const b = new Date(base);
+  if(isNaN(b.getTime())) return null;
+  const y = b.getFullYear(), m = b.getMonth() + QUOTE_VALID_MONTHS, day = b.getDate();
+  const lastDay = new Date(y, m + 1, 0).getDate();
+  const exp = new Date(y, m, Math.min(day, lastDay));
+  exp.setHours(0, 0, 0, 0);
+  const left = Math.round((exp.getTime() - todayStart().getTime()) / 86400000);   // 残り日数（負＝失効してから）
+  return { exp, left, fromQuote: !!d.quoteDate };
+}
+function needsExpiryCare(d){ const q = quoteExpiry(d); return !!q && q.left <= 7; }
+function quoteExpiryBadge(d){
+  const q = quoteExpiry(d);
+  if(!q || q.left > 7) return '';
+  const tip = `見積有効期限 ${q.exp.getFullYear()}/${q.exp.getMonth() + 1}/${q.exp.getDate()}` + (q.fromQuote ? '' : '（見積提出日が無いため、発生日から計算）');
+  return q.left < 0
+    ? `<span class="badge b-red" title="${tip}">⌛ 失効${-q.left}日</span>`
+    : `<span class="badge b-amber" title="${tip}">⌛ あと${q.left}日</span>`;
+}
 function staleBadge(d){
   const n = staleDaysOf(d);
   return n === null ? '' : `<span class="badge b-red">⏸ 停滞${n}日</span>`;
@@ -1477,7 +1508,7 @@ function populateFilters(){
 function updateFilterCountBadge(){
   const count = [
     branchFilterVal, assigneeFilterVal, rankFilterVal, sourceFilterVal, orderMonthFilterVal,
-    minAmountVal, maxAmountVal, excludeVal, conflictOnlyVal ? 'x' : '', unreadOnlyVal ? 'x' : '', followOnlyVal ? 'x' : ''
+    minAmountVal, maxAmountVal, excludeVal, conflictOnlyVal ? 'x' : '', unreadOnlyVal ? 'x' : '', followOnlyVal ? 'x' : '', expiredOnlyVal ? 'x' : ''
   ].filter(Boolean).length;
   const badge = document.getElementById('filterCount');
   if(count > 0){
@@ -1496,6 +1527,7 @@ function render(){
   if(conflictOnlyVal) visible = visible.filter(d => conflictIds.has(d.id));
   if(unreadOnlyVal) visible = visible.filter(d => unreadInfo[d.id]);
   if(followOnlyVal) visible = visible.filter(needsFollow);
+  if(expiredOnlyVal) visible = visible.filter(needsExpiryCare);
 
   const banner = document.getElementById('conflictBanner');
   if(pairs.length){
@@ -1520,6 +1552,8 @@ function render(){
         sorted.sort((a,b) => amountOf(b) - amountOf(a)); break;
       case 'amountAsc':
         sorted.sort((a,b) => amountOf(a) - amountOf(b)); break;
+      case 'expiryAsc':
+        sorted.sort((a,b) => { const qa = quoteExpiry(a), qb = quoteExpiry(b); return (qa ? qa.left : 999999) - (qb ? qb.left : 999999); }); break;
       case 'elapsedDesc':
         sorted.sort((a,b) => (b.elapsedDays ?? -1) - (a.elapsedDays ?? -1)); break;
       case 'elapsedAsc':
@@ -1627,6 +1661,7 @@ function renderCard(d, hasConflict, justUpdated){
       ${profitRateBadge(d)}
       ${elapsedBadge(d)}
       ${staleBadge(d)}
+      ${quoteExpiryBadge(d)}
       ${completenessBadge(d)}
     </div>
     <div class="row mono" style="color:var(--ink-soft); font-size:10.5px;">
@@ -1655,6 +1690,7 @@ document.getElementById('orderMonthFilter').addEventListener('change', e => { or
 document.getElementById('conflictOnlyCheck').addEventListener('change', e => { conflictOnlyVal = e.target.checked; render(); });
 document.getElementById('statusUnreadOnlyCheck').addEventListener('change', e => { unreadOnlyVal = e.target.checked; render(); });
 document.getElementById('followOnlyCheck').addEventListener('change', e => { followOnlyVal = e.target.checked; render(); });
+document.getElementById('expiredOnlyCheck').addEventListener('change', e => { expiredOnlyVal = e.target.checked; render(); });
 let amountDebounce;
 function onAmountInput(){
   clearTimeout(amountDebounce);
@@ -1846,7 +1882,7 @@ document.getElementById('btnCloseFilters').addEventListener('click', () => {
 
 document.getElementById('btnReset').addEventListener('click', () => {
   branchFilterVal = ''; assigneeFilterVal = ''; rankFilterVal = ''; sourceFilterVal = '';
-  orderMonthFilterVal = ''; minAmountVal = ''; maxAmountVal = ''; conflictOnlyVal = false; unreadOnlyVal = false; followOnlyVal = false;
+  orderMonthFilterVal = ''; minAmountVal = ''; maxAmountVal = ''; conflictOnlyVal = false; unreadOnlyVal = false; followOnlyVal = false; expiredOnlyVal = false;
   searchVal = ''; excludeVal = ''; sortSelectVal = 'date';
 
   document.getElementById('branchFilter').value = '';
@@ -1859,6 +1895,7 @@ document.getElementById('btnReset').addEventListener('click', () => {
   document.getElementById('conflictOnlyCheck').checked = false;
   document.getElementById('statusUnreadOnlyCheck').checked = false;
   document.getElementById('followOnlyCheck').checked = false;
+  document.getElementById('expiredOnlyCheck').checked = false;
   document.getElementById('searchBox').value = '';
   document.getElementById('excludeBox').value = '';
   document.getElementById('sortSelect').value = 'date';
@@ -2082,13 +2119,15 @@ function completenessBadge(d){
 
 // 今日のひとこと
 function dailyCounts(){
-  let overdue = 0, today = 0, stale = 0;
+  let overdue = 0, today = 0, stale = 0, expired = 0, expSoon = 0;
   deals.forEach(d => {
+    const q = quoteExpiry(d);
+    if(q){ if(q.left < 0) expired++; else if(q.left <= 7) expSoon++; }
     const s = nextActionState(d);
     if(s === 'overdue') overdue++; else if(s === 'today') today++;
     if(staleDaysOf(d) !== null) stale++;
   });
-  return { overdue, today, stale };
+  return { overdue, today, stale, expired, expSoon };
 }
 // いちばん急ぎの案件（期限超過が最優先、次に停滞日数の多いもの）
 function topUrgentDeal(){
@@ -2117,6 +2156,13 @@ function urgentPhrase(d){
   return `${dealLabel(d)}、${sd}日ほったらかしだよ`;
 }
 function openDealFromBubble(d){ openModal(d); }
+function showExpiredOnly(){
+  expiredOnlyVal = true;
+  document.getElementById('expiredOnlyCheck').checked = true;
+  document.getElementById('sortSelect').value = 'expiryAsc';
+  sortSelectVal = 'expiryAsc';
+  render();
+}
 function showFollowOnly(){
   followOnlyVal = true;
   document.getElementById('followOnlyCheck').checked = true;
@@ -2148,6 +2194,8 @@ function renderFunBar(){
     : `<button class="fun-chip red" style="${c.overdue ? '' : 'display:none'}" onclick="showFollowOnly()">期限超過 ${c.overdue}件</button>` +
       `<button class="fun-chip amber" style="${c.today ? '' : 'display:none'}" onclick="showFollowOnly()">今日が期限 ${c.today}件</button>` +
       `<button class="fun-chip grey" style="${c.stale ? '' : 'display:none'}" onclick="showFollowOnly()">停滞 ${c.stale}件</button>`;
+  const expChips = (c.expired ? `<button class="fun-chip red" onclick="showExpiredOnly()">⌛ 見積の有効期限切れ ${c.expired}件</button>` : '') +
+    (c.expSoon ? `<button class="fun-chip amber" onclick="showExpiredOnly()">⌛ 7日以内に失効 ${c.expSoon}件</button>` : '');
   const g = gaugeInfo(branchFilterVal || '');
   let gauge;
   if(!g){
@@ -2160,7 +2208,7 @@ function renderFunBar(){
       <div class="gauge-track"><i class="${p >= 100 ? 'done' : (p >= 80 ? 'hi' : '')}" style="width:${w}%"></i><b style="left:50%"></b><b style="left:80%"></b></div>
       <div class="gauge-sub"><span>${remainText}</span><span>${g.actual >= g.target ? '達成！🎉' : 'あと ' + fmtYen(g.target - g.actual)}</span></div></div>`;
   }
-  box.innerHTML = `<div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">${chips}</div>${gauge}` +
+  box.innerHTML = `<div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">${chips}${expChips}</div>${gauge}` +
     `<button class="fun-link" onclick="toggleMascot()">🌱 しんちょくん：${mascotOff() ? 'OFF' : 'ON'}</button>`;
 }
 
@@ -2262,7 +2310,8 @@ function mascotGreet(){
   const top = topUrgentDeal();
   const total = c.overdue + c.today + c.stale;
   if(!top){
-    mascotSay(hello + 'おっ、今日は優秀じゃん。明日も続くかな？', 'happy', 6500);
+    if(c.expired) mascotSay(hello + `見積の有効期限が切れてるのが${c.expired}件あるよ。そのままでいいの？😏`, 'smug', 9000, showExpiredOnly);
+    else mascotSay(hello + 'おっ、今日は優秀じゃん。明日も続くかな？', 'happy', 6500);
     return;
   }
   const more = total > 1 ? `（ほかに${total - 1}件）` : '';
