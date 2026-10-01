@@ -146,6 +146,7 @@ function readSourceSheet_(sheetName) {
       branch: sheetName,
       dealNo: dealNo || '',
       rowNum: rowNum,
+      no: row[COL.no - 1] || '',
       customerName: customerName || '',
       siteName: row[COL.siteName - 1] || '',
       projectName: row[COL.projectName - 1] || '',
@@ -497,7 +498,8 @@ function dealCoreCreate(data) {
     // 案件Noが空の場合は、他の未入力行と同じ「拠点::r行番号」形式のidにする（一覧取得時と一致させる）
     const id = dealNo ? (data.branch + '::' + dealNo) : (data.branch + '::r' + newRow);
 
-    return makeRes({ id: id, branch: data.branch, rowNum: newRow, dealNo: dealNo });
+    const newNo = sh.getRange(newRow, COL.no).getValue();
+    return makeRes({ id: id, branch: data.branch, rowNum: newRow, dealNo: dealNo, no: newNo });
   } catch (err) {
     return makeErr('dealCoreCreate error: ' + err.toString());
   } finally {
