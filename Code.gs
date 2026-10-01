@@ -465,19 +465,28 @@ function dealCoreCreate(data) {
     if (!sh) return makeErr('シートが見つかりません: ' + data.branch);
 
     const lastRow = Math.max(sh.getLastRow(), HEADER_ROW);
-    const newRow = lastRow + 1;
 
-    // No列（連番）は既存の最大値+1を採番
+    // 新規行の位置：No列にだけ番号が入っている「空きの定型行」があれば、その最初の行を使う。
+    // （番号が下まで先に振ってある運用のため、getLastRow()+1 だと遠く離れた下の行に入ってしまう）
+    // 空きの定型行が無ければ、従来どおり末尾に追加し、Noは既存の最大値+1を採番する。
+    let newRow = -1;
     let maxNo = 0;
     if (lastRow >= DATA_START_ROW) {
-      const noVals = sh.getRange(DATA_START_ROW, COL.no, lastRow - DATA_START_ROW + 1, 1).getValues();
-      noVals.forEach(r => { const n = Number(r[0]); if (!isNaN(n)) maxNo = Math.max(maxNo, n); });
+      const blk = sh.getRange(DATA_START_ROW, COL.no, lastRow - DATA_START_ROW + 1, COL.projectName - COL.no + 1).getValues(); // B〜F列
+      blk.forEach((r, i) => {
+        const isNum = (r[0] !== '' && r[0] !== null && isFinite(Number(r[0])));
+        if (isNum) maxNo = Math.max(maxNo, Number(r[0]));
+        const blank = [r[1], r[2], r[3], r[4]].every(v => v === '' || v === null);
+        if (newRow < 0 && isNum && blank) newRow = DATA_START_ROW + i;
+      });
     }
+    const reuseRow = newRow > 0;
+    if (!reuseRow) newRow = lastRow + 1;
 
     // 案件Noは指定があればそのまま使用。未入力なら空欄のまま作成する（自動採番はしない）
     const dealNo = (data.dealNo && String(data.dealNo).trim()) ? String(data.dealNo).trim() : '';
 
-    sh.getRange(newRow, COL.no).setValue(maxNo + 1);
+    if (!reuseRow) sh.getRange(newRow, COL.no).setValue(maxNo + 1);
     if (dealNo) sh.getRange(newRow, COL.dealNo).setValue(dealNo);
 
     EDITABLE_CORE_FIELDS.forEach(f => {
