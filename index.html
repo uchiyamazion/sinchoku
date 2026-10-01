@@ -1862,7 +1862,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
       editFields.forEach(f => { extraData[f] = document.getElementById('f-' + f).value; });
       const extraRes = await gasPost('deal_extra_upsert', extraData);
       if(extraRes.status !== 'success'){ alert('追加情報の保存に失敗しました：' + extraRes.data); }
-      else showToast('✅ 新規案件を登録しました');
+      else showToast('✅ 新規案件を登録しました（' + branch + 'シート ' + createRes.data.rowNum + '行目）');
       mascotSay('新規案件、ゲット？ちゃんと追いかけなよ〜', 'happy');
       await loadDeals();
       closeModal();
