@@ -207,6 +207,9 @@
   .mascot.worry .m-wavy, .mascot.worry .m-sweat{ display:inline; } .mascot.worry .m-smile{ display:none; }
   .mascot.worry svg{ animation:m-shake .35s ease-in-out 4; }
   .m-bubble{ position:relative; max-width:230px; background:#fff; border:2px solid #F3B5C2; color:#5a4646; border-radius:16px; font-weight:600; padding:7px 11px; font-size:12px; line-height:1.6; opacity:0; transform:translateY(6px); transition:all .25s; pointer-events:none; }
+  .toast{ position:fixed; left:50%; bottom:28px; transform:translate(-50%, 20px); z-index:300; background:#1F3A5F; color:#fff; padding:10px 20px; border-radius:999px; font-size:13.5px; font-weight:600; box-shadow:0 6px 20px rgba(0,0,0,.25); opacity:0; transition:all .25s; pointer-events:none; max-width:90vw; text-align:center; }
+  .toast.show{ opacity:1; transform:translate(-50%, 0); }
+  .toast.err{ background:#B3402F; }
   .m-bubble.show{ opacity:1; transform:none; }
   .m-bubble.act.show{ pointer-events:auto; cursor:pointer; }
   .m-bubble .m-go{ display:block; font-size:10.5px; color:#d27a8c; margin-top:2px; }
@@ -985,6 +988,7 @@ async function saveTargets(){
     anaEditTarget = false;
     renderAnalysis();
     renderFunBar(); checkMilestones();
+    showToast('✅ 目標を保存しました');
   }catch(e){
     alert('保存に失敗しました：' + (e && e.message ? e.message : e));
     btn.disabled = false; btn.textContent = '保存';
@@ -1675,6 +1679,13 @@ document.querySelectorAll('.col-body').forEach(body => {
       celebrateStatusChange(deal);
     }
     const res = await gasPost('deal_extra_upsert', Object.assign({}, deal, { baseUpdatedAt: deal.updatedAt || '', force: dropForce }));
+    if(res.status === 'success'){
+      showToast('✅ ' + dealLabel(deal).slice(1, -1) + ' を「' + newStatus + '」に移動しました');
+    } else {
+      showToast('⚠ 保存できませんでした。再読み込みします', 'err');
+      await loadDeals();
+      return;
+    }
     if(res.status === 'success' && res.data.conflicts && res.data.conflicts.length){
       alert('注意：工事日が以下の案件と重複しています。\n' +
         res.data.conflicts.map(c => `・${c.id}（${fmtDate(c.constructionStart)}〜${fmtDate(c.constructionEnd)}）`).join('\n'));
@@ -1838,6 +1849,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
       editFields.forEach(f => { extraData[f] = document.getElementById('f-' + f).value; });
       const extraRes = await gasPost('deal_extra_upsert', extraData);
       if(extraRes.status !== 'success'){ alert('追加情報の保存に失敗しました：' + extraRes.data); }
+      else showToast('✅ 新規案件を登録しました');
       mascotSay('新規案件、ゲット？ちゃんと追いかけなよ〜', 'happy');
       await loadDeals();
       closeModal();
@@ -1897,6 +1909,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
     if((newStatusVal === '受注' || newStatusVal === '完了') && newStatusVal !== prevStatus){
       celebrateStatusChange(Object.assign({}, currentDeal, extraData));
     }
+    showToast('✅ 保存しました' + (currentDeal.siteName || currentDeal.customerName ? '（' + dealLabel(currentDeal).slice(1, -1) + '）' : ''));
     funAfterSave(currentDeal, Object.assign({}, coreData, extraData), (newStatusVal === '受注' || newStatusVal === '完了') && newStatusVal !== prevStatus);
     await loadDeals();
     closeModal();
@@ -1979,6 +1992,19 @@ function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; 
 function lsSet(k, v){ try{ localStorage.setItem(k, v); }catch(e){} }
 function filled(v){ return v !== '' && v != null && !(typeof v === 'string' && !v.trim()); }
 const pickOne = a => a[Math.floor(Math.random() * a.length)];
+
+// 保存完了などの短い通知（画面下に数秒だけ出る）
+let toastTimer = null;
+function showToast(msg, kind){
+  let el = document.getElementById('toast');
+  if(!el){ el = document.createElement('div'); el.id = 'toast'; el.className = 'toast'; document.body.appendChild(el); }
+  el.textContent = msg;
+  el.classList.toggle('err', kind === 'err');
+  void el.offsetWidth;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+}
 
 // 入力の充実度（案件の段階ごとに、そろえたい項目が変わる）
 function completeness(d){
