@@ -525,7 +525,7 @@
 </div>
 
 <div id="conflictBanner"></div>
-<datalist id="dl-siteName"></datalist><datalist id="dl-assignee"></datalist><datalist id="dl-customerName"></datalist><datalist id="dl-supplier"></datalist>
+<datalist id="dl-siteName"></datalist><datalist id="dl-assignee"></datalist><datalist id="dl-customerName"></datalist><datalist id="dl-supplier"></datalist><datalist id="dl-source"></datalist>
 
 <div id="loadingOverlay">
   <div class="spinner"></div>
@@ -629,6 +629,7 @@
       <div class="field"><label id="dealNoLabel">案件No</label><input id="c-dealNo"></div>
       <div class="field"><label>担当者</label><input id="c-assignee" list="dl-assignee" autocomplete="off"></div>
       <div class="field"><label>顧客名</label><input id="c-customerName" list="dl-customerName" autocomplete="off"></div>
+      <div class="field"><label>源泉（紹介元）</label><input id="c-source" list="dl-source" autocomplete="off"></div>
       <div class="field full"><label>案件名</label><input id="c-projectName"></div>
       <div class="field full"><label>案件概略</label><textarea id="c-summary"></textarea></div>
       <div class="field"><label>発生日</label><input type="date" id="c-occurredDate"></div>
@@ -1690,7 +1691,7 @@ document.getElementById('toggleLost').addEventListener('click', () => {
 // ==== モーダル ====
 const overlay = document.getElementById('overlay');
 const BRANCHES = ['営業部','営業部（ビルメン）','１課','２課','３課','函館','旭川'];
-const coreFields = ['dealNo','assignee','customerName','siteName','projectName','summary','occurredDate','rank','quoteAmount','confirmedAmount','expectedOrderMonth','profitRate','currentStatus','pendingIssue'];
+const coreFields = ['dealNo','assignee','customerName','source','siteName','projectName','summary','occurredDate','rank','quoteAmount','confirmedAmount','expectedOrderMonth','profitRate','currentStatus','pendingIssue'];
 const editFields = ['status','quoteDate','lostReason','winFactor','constructionStart','constructionEnd','supplier','purchaseDate','purchaseAmount','billingMonth','paymentTerms','receiptMonth','nextActionDate','nextActionNote'];
 let currentDeal = null;
 let isNewMode = false;
@@ -1774,7 +1775,7 @@ function openModal(deal){
 }
 function closeModal(){ overlay.classList.remove('open'); currentDeal = null; isNewMode = false; }
 
-const FIELD_LABELS = { dealNo:'案件No', assignee:'担当者', customerName:'顧客名', siteName:'現場名', projectName:'案件名', summary:'概要', occurredDate:'発生日', rank:'ランク', quoteAmount:'見積金額', confirmedAmount:'確定金額', expectedOrderMonth:'受注予定月', profitRate:'粗利率', currentStatus:'現在状況', pendingIssue:'懸案事項' };
+const FIELD_LABELS = { dealNo:'案件No', assignee:'担当者', customerName:'顧客名', source:'源泉', siteName:'現場名', projectName:'案件名', summary:'概要', occurredDate:'発生日', rank:'ランク', quoteAmount:'見積金額', confirmedAmount:'確定金額', expectedOrderMonth:'受注予定月', profitRate:'粗利率', currentStatus:'現在状況', pendingIssue:'懸案事項' };
 function conflictMessage(core, extra){
   const lines = [];
   if(core && core.length) lines.push('基本情報：' + core.map(c => FIELD_LABELS[c.field] || c.field).join('、'));
@@ -1923,6 +1924,7 @@ const SUGGEST_FIELDS = [
   { id: 'c-siteName',     dl: 'dl-siteName',     key: 'siteName',     hint: true },
   { id: 'c-customerName', dl: 'dl-customerName', key: 'customerName', hint: true },
   { id: 'c-assignee',     dl: 'dl-assignee',     key: 'assignee',     hint: false },
+  { id: 'c-source',       dl: 'dl-source',       key: 'source',       hint: true },
   { id: 'f-supplier',     dl: 'dl-supplier',     key: 'supplier',     hint: true }
 ];
 let suggestValues = {};   // key -> 出現回数の多い順の名前一覧
