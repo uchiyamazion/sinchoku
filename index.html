@@ -1782,9 +1782,48 @@ function render(){
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openCashPanel()">💴 仕入・入金見込</button></div>
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openAnalysisPanel()">📊 受注率・分析</button></div>
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openNamePanel()">🧹 表記ゆれ</button></div>
+    ${bulkCompleteTargets().length ? `<div class="s-item s-action"><button class="btn btn-ghost" onclick="openBulkComplete()">✅ 確定金額あり→完了（${bulkCompleteTargets().length}件）</button></div>` : ''}
   `;
 
   document.getElementById('lostCol').style.display = showLost ? 'flex' : 'none';
+}
+
+// ==== 確定金額が入っている案件を「完了」へ一括移動 ====
+// 対象：手動ステータスが 見積中／受注／工事中 で、確定金額が入っているもの（失注・完了は対象外）
+function bulkCompleteTargets(){
+  return deals.filter(d => ['見積中','受注','工事中'].indexOf(d.status) >= 0 &&
+    d.confirmedAmount !== '' && d.confirmedAmount != null);
+}
+let bulkCompleteRunning = false;
+async function openBulkComplete(){
+  if(bulkCompleteRunning) return;
+  const targets = bulkCompleteTargets();
+  if(!targets.length){ showToast('対象の案件はありません'); return; }
+  const preview = targets.slice(0, 12).map(d => '・' + dealLabel(d).slice(1, -1) + '（' + d.status + '）').join('\n') +
+    (targets.length > 12 ? '\n…ほか' + (targets.length - 12) + '件' : '');
+  if(!confirm('確定金額が入っている ' + targets.length + '件 を「完了」に移動します。\n（失注・すでに完了の案件は対象外です）\n\n' + preview + '\n\nよろしいですか？')) return;
+  bulkCompleteRunning = true;
+  let ok = 0, skipped = 0, failed = 0;
+  try{
+    for(let i = 0; i < targets.length; i++){
+      showToast('完了に移動中… ' + (i + 1) + '/' + targets.length);
+      const d = targets[i];
+      // 変更するのはステータスだけ（他の項目はシートの値をそのまま残す）
+      let res;
+      try{ res = await gasPost('deal_extra_upsert', { id: d.id, status: '完了', baseUpdatedAt: d.updatedAt || '', force: false }); }
+      catch(e){ res = { status: 'error' }; }
+      if(res.status === 'success') ok++;
+      else if(res.status === 'conflict') skipped++;
+      else failed++;
+    }
+  } finally {
+    bulkCompleteRunning = false;
+  }
+  let msg = '✅ ' + ok + '件を「完了」に移動しました';
+  if(skipped) msg += '／' + skipped + '件は他の人が先に更新していたため見送り';
+  if(failed) msg += '／' + failed + '件は保存できませんでした';
+  showToast(msg, (skipped || failed) ? 'err' : undefined);
+  await loadDeals({ force: true });
 }
 
 function fmtDateTime(d){
@@ -2167,6 +2206,17 @@ document.getElementById('btnSave').addEventListener('click', async () => {
     editFields.forEach(f => { extraData[f] = document.getElementById('f-' + f).value; });
 
     const prevStatus = effStatus(currentDeal);
+
+    // 確定金額を新しく入れたら、自動で「完了」に移す（失注・すでに完了は除く／ステータスを自分で変えたときはそちらを優先）
+    let autoCompleted = false;
+    const confirmedNow = coreData.confirmedAmount !== '' && coreData.confirmedAmount != null;
+    const confirmedBefore = modalInitial.confirmedAmount !== '' && modalInitial.confirmedAmount != null;
+    const userChangedStatus = (extraData.status || '') !== (currentDeal.status || '');
+    if(confirmedNow && !confirmedBefore && !userChangedStatus &&
+       prevStatus !== '完了' && prevStatus !== '失注'){
+      extraData.status = '完了';
+      autoCompleted = true;
+    }
     const newStatusVal = extraData.status || prevStatus;
 
     const extraRes = await gasPost('deal_extra_upsert', extraData);
@@ -2180,7 +2230,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
     if((newStatusVal === '受注' || newStatusVal === '完了') && newStatusVal !== prevStatus){
       celebrateStatusChange(Object.assign({}, currentDeal, extraData));
     }
-    showToast('✅ 保存しました' + (currentDeal.siteName || currentDeal.customerName ? '（' + dealLabel(currentDeal).slice(1, -1) + '）' : ''));
+    showToast('✅ 保存しました' + (currentDeal.siteName || currentDeal.customerName ? '（' + dealLabel(currentDeal).slice(1, -1) + '）' : '') + (autoCompleted ? '　確定金額が入ったので「完了」に移動しました' : ''));
     funAfterSave(currentDeal, Object.assign({}, coreData, extraData), (newStatusVal === '受注' || newStatusVal === '完了') && newStatusVal !== prevStatus);
     await loadDeals({ force: true });
     closeModal();
