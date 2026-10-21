@@ -248,6 +248,13 @@
   .cash-table tr.cur td{ background:var(--navy-soft); font-weight:700; }
   .cash-table td.neg{ color:var(--red); }
   .cash-table tfoot td{ font-weight:700; border-top:2px solid var(--line); border-bottom:none; }
+  .cash-box{ padding:10px 12px; background:var(--grey-soft); border-radius:8px; font-size:12.5px; line-height:1.8; color:var(--ink); }
+  .cash-box .cb-title{ font-weight:700; margin-bottom:2px; }
+  .cash-box .cb-net{ margin-top:4px; padding-top:4px; border-top:1px solid var(--line); font-weight:700; }
+  .cash-box .neg, .cash-table td.neg{ color:var(--red); }
+  .cash-detail{ margin-top:14px; }
+  .cash-detail summary{ cursor:pointer; font-weight:700; font-size:13px; padding:6px 0; }
+  .cash-detail .mo{ display:block; font-size:10px; color:var(--ink-soft); font-family:'IBM Plex Sans JP',sans-serif; }
   .cash-count{ font-size:10px; color:var(--ink-soft); margin-left:4px; font-family:'IBM Plex Sans JP',sans-serif; }
   .ana-tabs{ display:flex; gap:6px; flex-wrap:wrap; margin:0 0 12px; }
   .ana-tabs button{ border:1px solid var(--line); background:#fff; border-radius:999px; padding:5px 12px; font-size:12px; cursor:pointer; color:var(--ink); font-family:inherit; }
@@ -579,7 +586,7 @@
     <h2>💴 仕入・入金の見込み</h2>
     <div class="cash-sub">
       シオンテクノスの支払いは<b>翌々月払い</b>：仕入日の翌々月として自動計算します（支払い月を入力した案件はそちらを優先）。<br>
-      入金は案件ごとに入力した「入金予定月」で集計します（受注・工事中・完了の案件が対象）。前入金額が入っている案件は、その分を差し引いた金額で集計します。現在の絞り込み条件が反映されます。
+      入金は案件ごとに入力した月で集計します（受注・工事中・完了の案件が対象）：<b>前入金は「前入金月」、残り（金額−前入金）は「入金予定月」</b>に計上します。現在の絞り込み条件が反映されます。
     </div>
     <div id="cashBody"></div>
     <div class="modal-actions"><button class="btn btn-primary" id="btnCashClose">閉じる</button></div>
@@ -732,6 +739,7 @@
       <div class="field"><label>入金予定月</label><input type="month" id="f-receiptMonth"></div>
       <div class="field"><label>前入金額（円）</label><input type="number" id="f-advanceAmount"></div>
       <div class="field"><label>前入金月</label><input type="month" id="f-advanceMonth"></div>
+      <div class="field full"><div class="cash-box" id="cashBox"></div></div>
     </div>
 
     <div id="modalConflict" class="modal-conflict" style="display:none;"></div>
@@ -813,7 +821,46 @@ function purchaseLineHtml(d){
     (recv ? `<span class="badge b-green" title="${escapeHtml(d.paymentTerms || '')}">入金 ${escapeHtml(recv)}</span>` : '') +
     `</div>`;
 }
-function updatePayMonthHint(){
+// この案件の入出金の内訳（入金＝前入金＋残り、出金＝仕入）
+function cashFlowOf(d){
+  const sales = amountOf(d);
+  const adv = advanceOf(d);
+  const remain = Math.max(sales - adv, 0);
+  const pn = Number(d.purchaseAmount);
+  const hasPur = d.purchaseAmount !== '' && d.purchaseAmount != null && !isNaN(pn);
+  const pur = hasPur ? pn : 0;
+  const pay = payMonthOf(d);
+  const inTotal = adv + remain;
+  return {
+    sales, adv, advMonth: normMonth(d.advanceMonth),
+    remain, recvMonth: normMonth(d.receiptMonth),
+    pur, hasPur, payMonth: pay.month, payAuto: pay.auto,
+    inTotal, net: inTotal - pur,
+    estimated: !(d.confirmedAmount !== '' && d.confirmedAmount != null)
+  };
+}
+function signedYen(n){ return (n < 0 ? '−' : '') + fmtYen(Math.abs(n)); }
+function updateCashBox(){
+  const box = document.getElementById('cashBox');
+  if(!box) return;
+  const v = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const cf = cashFlowOf({
+    confirmedAmount: v('c-confirmedAmount'), quoteAmount: v('c-quoteAmount'),
+    purchaseAmount: v('f-purchaseAmount'), purchaseDate: v('f-purchaseDate'), billingMonth: v('f-billingMonth'),
+    advanceAmount: v('f-advanceAmount'), advanceMonth: v('f-advanceMonth'), receiptMonth: v('f-receiptMonth')
+  });
+  if(!cf.sales && !cf.hasPur && !cf.adv){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = '';
+  const m = x => x ? '（' + escapeHtml(x) + '）' : '（月未入力）';
+  let html = '<div class="cb-title">💴 入出金の内訳</div>';
+  html += `<div>契約金額：${fmtYen(cf.sales)}${cf.estimated ? '（見積金額）' : '（確定金額）'}</div>`;
+  html += `<div>入金：${cf.adv ? '前入金 ' + fmtYen(cf.adv) + m(cf.advMonth) + ' ＋ ' : ''}${cf.remain ? '残り ' + fmtYen(cf.remain) + m(cf.recvMonth) : (cf.adv ? '残りなし' : '－')}　計 ${fmtYen(cf.inTotal)}</div>`;
+  html += `<div>出金：${cf.hasPur ? '仕入 ' + fmtYen(cf.pur) + '（支払 ' + (cf.payMonth ? escapeHtml(cf.payMonth) + (cf.payAuto ? '・予' : '') : '月未入力') + '）' : '仕入 未入力'}</div>`;
+  if(cf.sales || cf.adv) html += `<div class="cb-net ${cf.net < 0 ? 'neg' : ''}">差引（入金計−仕入）：${signedYen(cf.net)}</div>`;
+  box.innerHTML = html;
+}
+function updatePayMonthHint(){ updatePayMonthHintCore(); updateCashBox(); }
+function updatePayMonthHintCore(){
   const hint = document.getElementById('payMonthHint');
   if(!hint) return;
   const bm = document.getElementById('f-billingMonth').value;
@@ -839,6 +886,8 @@ function openCashPanel(){
   const ensure = ym => (months[ym] = months[ym] || { pay: 0, payN: 0, recv: 0, recvN: 0 });
   const won = ['受注', '工事中', '完了'];
   let unschedPay = 0, unschedN = 0, noPurN = 0, estCost = 0, estN = 0;
+  let noAdvM = 0, noAdvMN = 0, noRecvM = 0, noRecvMN = 0;
+  const detail = [];
 
   list.forEach(d => {
     const isWon = won.indexOf(effStatus(d)) >= 0;
@@ -854,8 +903,19 @@ function openCashPanel(){
       const sales = amountOf(d);
       if(sales > 0 && profit > 0){ estCost += Math.max(sales - profit, 0); estN++; }
     }
-    const rm = normMonth(d.receiptMonth);
-    if(rm && isWon){ const m = ensure(rm); m.recv += Math.max(amountOf(d) - advanceOf(d), 0); m.recvN++; }
+    if(isWon){
+      const cf = cashFlowOf(d);
+      // 前入金は前入金月に、残りは入金予定月に計上する
+      if(cf.adv > 0){
+        if(cf.advMonth){ const m = ensure(cf.advMonth); m.recv += cf.adv; m.recvN++; }
+        else { noAdvM += cf.adv; noAdvMN++; }
+      }
+      if(cf.remain > 0){
+        if(cf.recvMonth){ const m = ensure(cf.recvMonth); m.recv += cf.remain; m.recvN++; }
+        else { noRecvM += cf.remain; noRecvMN++; }
+      }
+      if(cf.hasPur || cf.adv > 0 || cf.recvMonth || cf.advMonth) detail.push({ d, cf });
+    }
   });
 
   const keys = Object.keys(months).sort();
@@ -888,6 +948,33 @@ function openCashPanel(){
     html += `<div class="cash-note">受注以降で<b>仕入金額が未入力</b>の案件：<b>${noPurN}件</b>` +
       (estN ? `<br>概算原価（見積/確定金額 − 粗利）：<b>${fmtYen(estCost)}</b>（${estN}件分）` : '') +
       `<br>※概算には外注費など仕入以外の原価も含まれます。目安としてご覧ください。</div>`;
+  }
+
+  if(noAdvMN){
+    html += `<div class="cash-note">前入金額は入っているが<b>前入金月が未入力</b>の案件：<b>${noAdvMN}件（${fmtYen(noAdvM)}）</b><br>前入金月を入れると、月別に集計されます。</div>`;
+  }
+  if(noRecvMN){
+    html += `<div class="cash-note">受注以降で、<b>入金予定月が未入力</b>の案件（残りの入金）：<b>${noRecvMN}件（${fmtYen(noRecvM)}）</b><br>入金予定月を入れると、月別に集計されます。</div>`;
+  }
+
+  if(detail.length){
+    detail.sort((a, b) => (a.cf.recvMonth || a.cf.advMonth || '9999').localeCompare(b.cf.recvMonth || b.cf.advMonth || '9999'));
+    const mo = x => x ? `<span class="mo">${escapeHtml(x)}</span>` : '';
+    let tS = 0, tA = 0, tR = 0, tP = 0, tN = 0;
+    let rows = '';
+    detail.forEach(({ d, cf }) => {
+      tS += cf.sales; tA += cf.adv; tR += cf.remain; tP += cf.pur; tN += cf.net;
+      rows += `<tr><td>${escapeHtml(dealLabel(d).slice(1, -1))}</td>` +
+        `<td class="num">${cf.sales ? fmtYen(cf.sales) : '－'}${cf.estimated && cf.sales ? '<span class="mo">見積</span>' : ''}</td>` +
+        `<td class="num">${cf.adv ? fmtYen(cf.adv) : '－'}${mo(cf.advMonth)}</td>` +
+        `<td class="num">${cf.remain ? fmtYen(cf.remain) : '－'}${mo(cf.recvMonth)}</td>` +
+        `<td class="num">${cf.hasPur ? fmtYen(cf.pur) : '－'}${mo(cf.payMonth ? cf.payMonth + (cf.payAuto ? '（予）' : '') : '')}</td>` +
+        `<td class="num ${cf.net < 0 ? 'neg' : ''}">${(cf.sales || cf.adv) ? signedYen(cf.net) : '－'}</td></tr>`;
+    });
+    html += `<details class="cash-detail"><summary>案件ごとの入出金の内訳（${detail.length}件）</summary>` +
+      `<div class="cash-table-wrap"><table class="cash-table"><thead><tr><th>案件</th><th>契約金額</th><th>前入金</th><th>残り入金</th><th>仕入（出金）</th><th>差引</th></tr></thead><tbody>${rows}</tbody>` +
+      `<tfoot><tr><td>合計</td><td class="num">${fmtYen(tS)}</td><td class="num">${fmtYen(tA)}</td><td class="num">${fmtYen(tR)}</td><td class="num">${fmtYen(tP)}</td><td class="num ${tN < 0 ? 'neg' : ''}">${signedYen(tN)}</td></tr></tfoot></table></div>` +
+      `<div class="cash-note">差引＝（前入金＋残り入金）−仕入。仕入が未入力の案件は、仕入0円として差引を出しています。</div></details>`;
   }
 
   document.getElementById('cashBody').innerHTML = html;
@@ -2118,6 +2205,7 @@ function conflictMessage(core, extra){
 document.getElementById('btnNew').addEventListener('click', openNewModal);
 document.getElementById('f-purchaseDate').addEventListener('input', updatePayMonthHint);
 document.getElementById('f-billingMonth').addEventListener('input', updatePayMonthHint);
+['c-confirmedAmount','c-quoteAmount','f-purchaseAmount','f-advanceAmount','f-advanceMonth','f-receiptMonth'].forEach(id => { const el = document.getElementById(id); if(el) el.addEventListener('input', updatePayMonthHint); });
 
 document.getElementById('btnToggleFilters').addEventListener('click', () => {
   document.getElementById('filterPanel').classList.toggle('open');
