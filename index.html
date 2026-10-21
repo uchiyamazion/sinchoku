@@ -730,6 +730,8 @@
       <div class="field"><label>支払い月（仕入先への支払い）</label><input type="month" id="f-billingMonth"><span class="field-hint" id="payMonthHint"></span></div>
       <div class="field full"><label>入金条件（注文書の内容）</label><input id="f-paymentTerms" placeholder="例：月末締め翌月末払い"></div>
       <div class="field"><label>入金予定月</label><input type="month" id="f-receiptMonth"></div>
+      <div class="field"><label>前入金額（円）</label><input type="number" id="f-advanceAmount"></div>
+      <div class="field"><label>前入金月</label><input type="month" id="f-advanceMonth"></div>
     </div>
 
     <div id="modalConflict" class="modal-conflict" style="display:none;"></div>
@@ -796,8 +798,11 @@ function purchaseLineHtml(d){
   const hasAmt = d.purchaseAmount !== '' && d.purchaseAmount != null;
   const pay = payMonthOf(d);
   const recv = normMonth(d.receiptMonth);
-  if(!hasAmt && !pay.month && !recv) return '';
+  const hasAdv = d.advanceAmount !== '' && d.advanceAmount != null && !isNaN(d.advanceAmount);
+  const advM = normMonth(d.advanceMonth);
+  if(!hasAmt && !pay.month && !recv && !hasAdv && !advM) return '';
   return `<div class="row mono purchase-line">` +
+    ((hasAdv || advM) ? `<span class="badge b-green">前入金 ${hasAdv ? fmtYen(d.advanceAmount) : ''}${advM ? ' ' + escapeHtml(advM) : ''}</span>` : '') +
     ((hasAmt || pay.month) ? `<span>仕入 ${hasAmt ? fmtYen(d.purchaseAmount) : '－'}</span>` : '') +
     (pay.month ? `<span class="badge b-grey">支払 ${escapeHtml(pay.month)}${pay.auto ? '（予）' : ''}</span>` : '') +
     (recv ? `<span class="badge b-green" title="${escapeHtml(d.paymentTerms || '')}">入金 ${escapeHtml(recv)}</span>` : '') +
@@ -1508,13 +1513,29 @@ function nextActionHtml(d){
 //          ＞ 見積金額 or 見積提出日あり(自動で見積提出済) ＞ 未設定
 // 優先順位：手動ステータス ＞ 確定金額あり(完了) ＞ ランクS(受注) ＞ ランクE(失注)
 //          ＞ 見積金額 or 見積提出日あり(見積提出済) ＞ 未設定
-function effStatus(d){
+function effStatusBase(d){
   if(d.status) return d.status;
   if(d.confirmedAmount !== '' && d.confirmedAmount != null) return '完了';
   if(d.rank === 'S') return '受注';
   if(d.rank === 'E') return '失注';
   if(d.quoteDate || (d.quoteAmount !== '' && d.quoteAmount != null)) return '見積中';
   return '';
+}
+// 工事開始日になったら、自動で「工事中」に表示する。
+// 対象：未設定／見積中／受注。工事終了日が入っていて過ぎている場合は対象外（完了・失注・工事中はそのまま）。
+function isInConstructionPeriod(d){
+  const st = dayKey(d.constructionStart);
+  if(st == null) return false;
+  const now = new Date();
+  const today = now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate();
+  if(today < st) return false;
+  const en = dayKey(d.constructionEnd);
+  return !(en != null && today > en);
+}
+function effStatus(d){
+  const base = effStatusBase(d);
+  if((base === '' || base === '見積中' || base === '受注') && isInConstructionPeriod(d)) return '工事中';
+  return base;
 }
 
 function findConflicts(){
@@ -1972,6 +1993,7 @@ document.querySelectorAll('.col-body').forEach(body => {
         if(rr.status === 'success'){ deal.rank = 'E'; render(); msg += '（ランクもEに変更）'; }
         else { msg += '（ランクをEにできませんでした）'; }
       }
+      if(effStatus(deal) !== newStatus) msg += '（工事期間中のため、表示は自動で「' + effStatus(deal) + '」になります）';
       showToast(msg);
       const pk = kindOfStatus(newStatus);
       if(pk && newStatus !== '受注' && newStatus !== '完了' && (isForwardMove(oldEff, newStatus) || newStatus === '失注')) praiseProgress(pk);
@@ -1997,7 +2019,7 @@ document.getElementById('toggleLost').addEventListener('click', () => {
 const overlay = document.getElementById('overlay');
 const BRANCHES = ['営業部','営業部（ビルメン）','１課','２課','３課','函館','旭川'];
 const coreFields = ['dealNo','assignee','customerName','source','siteName','projectName','summary','occurredDate','rank','quoteAmount','confirmedAmount','expectedOrderMonth','profitRate','currentStatus','pendingIssue'];
-const editFields = ['status','quoteDate','lostReason','winFactor','constructionStart','constructionEnd','supplier','purchaseDate','purchaseAmount','billingMonth','paymentTerms','receiptMonth','nextActionDate','nextActionNote'];
+const editFields = ['status','quoteDate','lostReason','winFactor','constructionStart','constructionEnd','supplier','purchaseDate','purchaseAmount','billingMonth','paymentTerms','receiptMonth','advanceAmount','advanceMonth','nextActionDate','nextActionNote'];
 let currentDeal = null;
 let isNewMode = false;
 let modalInitial = {};
@@ -2051,7 +2073,7 @@ function openModal(deal){
     const el = document.getElementById('f-' + f);
     if(f === 'quoteDate' || f === 'nextActionDate' || f === 'constructionStart' || f === 'constructionEnd' || f === 'purchaseDate'){
       el.value = toDateInputVal(deal[f]);
-    } else if(f === 'billingMonth' || f === 'receiptMonth'){
+    } else if(f === 'billingMonth' || f === 'receiptMonth' || f === 'advanceMonth'){
       el.value = normMonth(deal[f]);
     } else {
       el.value = deal[f] || '';

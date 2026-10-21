@@ -40,7 +40,7 @@ const EXTRA_HEADERS = [
   'id', 'status', 'quoteDate', 'lostReason', 'winFactor',
   'constructionStart', 'constructionEnd',
   'supplier', 'purchaseDate', 'purchaseAmount', 'billingMonth',
-  'paymentTerms', 'receiptMonth',
+  'paymentTerms', 'receiptMonth', 'advanceAmount', 'advanceMonth',
   'nextActionDate', 'nextActionNote',
   'orderedAt',
   'updatedAt'
@@ -271,6 +271,8 @@ function dealList() {
       billingMonth: normMonthStr_(extra.billingMonth),
       paymentTerms: extra.paymentTerms || '',
       receiptMonth: normMonthStr_(extra.receiptMonth),
+      advanceAmount: extra.advanceAmount || '',
+      advanceMonth: normMonthStr_(extra.advanceMonth),
       nextActionDate: extra.nextActionDate || '',
       nextActionNote: extra.nextActionNote || '',
       updatedAt: extra.updatedAt || '',
