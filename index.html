@@ -579,7 +579,7 @@
     <h2>💴 仕入・入金の見込み</h2>
     <div class="cash-sub">
       シオンテクノスの支払いは<b>翌々月払い</b>：仕入日の翌々月として自動計算します（支払い月を入力した案件はそちらを優先）。<br>
-      入金は案件ごとに入力した「入金予定月」で集計します（受注・工事中・完了の案件が対象）。現在の絞り込み条件が反映されます。
+      入金は案件ごとに入力した「入金予定月」で集計します（受注・工事中・完了の案件が対象）。前入金額が入っている案件は、その分を差し引いた金額で集計します。現在の絞り込み条件が反映されます。
     </div>
     <div id="cashBody"></div>
     <div class="modal-actions"><button class="btn btn-primary" id="btnCashClose">閉じる</button></div>
@@ -794,6 +794,11 @@ function payMonthOf(d){
   }
   return { month: '', auto: false };
 }
+// 前入金額（入っていなければ0）。入金見込の集計では、金額から差し引く
+function advanceOf(d){
+  const n = Number(d.advanceAmount);
+  return (d.advanceAmount !== '' && d.advanceAmount != null && !isNaN(n) && n > 0) ? n : 0;
+}
 function purchaseLineHtml(d){
   const hasAmt = d.purchaseAmount !== '' && d.purchaseAmount != null;
   const pay = payMonthOf(d);
@@ -850,7 +855,7 @@ function openCashPanel(){
       if(sales > 0 && profit > 0){ estCost += Math.max(sales - profit, 0); estN++; }
     }
     const rm = normMonth(d.receiptMonth);
-    if(rm && isWon){ const m = ensure(rm); m.recv += amountOf(d); m.recvN++; }
+    if(rm && isWon){ const m = ensure(rm); m.recv += Math.max(amountOf(d) - advanceOf(d), 0); m.recvN++; }
   });
 
   const keys = Object.keys(months).sort();
