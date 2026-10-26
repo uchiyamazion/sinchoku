@@ -1641,6 +1641,8 @@ function filterConflictsByAmount(list, selfDeal){
     return o && amountOf(o) >= CONFLICT_MIN_AMOUNT;
   });
 }
+let conflictDetailOpen = false;
+function toggleConflictDetail(){ conflictDetailOpen = !conflictDetailOpen; render(); }
 function findConflicts(){
   const active = deals.filter(d => (effStatus(d) === '受注' || effStatus(d) === '工事中') && d.constructionStart && amountOf(d) >= CONFLICT_MIN_AMOUNT);
   const conflictIds = new Set();
@@ -1821,8 +1823,10 @@ function render(){
 
   const banner = document.getElementById('conflictBanner');
   if(pairs.length){
+    // 常に一覧を出さず、1行にたたんでおく。タップで詳細を開く。
     banner.style.display = 'block';
-    banner.innerHTML = `⚠ 工事日が重複しています（100万円以上の案件）： <span class="detail">${pairs.join(' / ')}</span>`;
+    banner.innerHTML = `<span class="conflict-toggle" style="cursor:pointer" onclick="toggleConflictDetail()">⚠ 工事日が重複している案件があります（100万円以上・${pairs.length}組）　${conflictDetailOpen ? '▲ 閉じる' : '▼ 詳細'}</span>` +
+      (conflictDetailOpen ? `<div class="detail" style="margin-top:6px;font-weight:400;color:var(--ink)">${pairs.join(' / ')}</div>` : '');
   } else {
     banner.style.display = 'none';
   }
