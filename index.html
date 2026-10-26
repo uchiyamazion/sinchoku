@@ -548,7 +548,7 @@
     </div>
     <div class="filter-field filter-field-checkbox">
       <label class="checkbox-label">
-        <input type="checkbox" id="conflictOnlyCheck"> 工事日重複のみ表示
+        <input type="checkbox" id="conflictOnlyCheck"> 工事日重複のみ表示（100万円以上）
       </label>
     </div>
     <div class="filter-field filter-field-checkbox">
@@ -1630,8 +1630,19 @@ function effStatus(d){
   return base;
 }
 
+// 工事日の重複チェックは、金額（確定金額があればそれ、なければ見積金額）が100万円以上の案件どうしだけを対象にする
+const CONFLICT_MIN_AMOUNT = 1000000;
+// 保存時にGASが返す重複リストを、金額の条件で絞る（selfDeal＝今保存した案件）
+function filterConflictsByAmount(list, selfDeal){
+  if(!list || !list.length) return [];
+  if(amountOf(selfDeal) < CONFLICT_MIN_AMOUNT) return [];
+  return list.filter(c => {
+    const o = deals.find(x => x.id === c.id);
+    return o && amountOf(o) >= CONFLICT_MIN_AMOUNT;
+  });
+}
 function findConflicts(){
-  const active = deals.filter(d => (effStatus(d) === '受注' || effStatus(d) === '工事中') && d.constructionStart);
+  const active = deals.filter(d => (effStatus(d) === '受注' || effStatus(d) === '工事中') && d.constructionStart && amountOf(d) >= CONFLICT_MIN_AMOUNT);
   const conflictIds = new Set();
   const pairs = [];
   for(let i=0;i<active.length;i++){
@@ -1811,7 +1822,7 @@ function render(){
   const banner = document.getElementById('conflictBanner');
   if(pairs.length){
     banner.style.display = 'block';
-    banner.innerHTML = `⚠ 工事日が重複しています： <span class="detail">${pairs.join(' / ')}</span>`;
+    banner.innerHTML = `⚠ 工事日が重複しています（100万円以上の案件）： <span class="detail">${pairs.join(' / ')}</span>`;
   } else {
     banner.style.display = 'none';
   }
@@ -2094,9 +2105,10 @@ document.querySelectorAll('.col-body').forEach(body => {
       await loadDeals({ force: true });
       return;
     }
-    if(res.status === 'success' && res.data.conflicts && res.data.conflicts.length){
-      alert('注意：工事日が以下の案件と重複しています。\n' +
-        res.data.conflicts.map(c => `・${c.id}（${fmtDate(c.constructionStart)}〜${fmtDate(c.constructionEnd)}）`).join('\n'));
+    const dragConf = res.status === 'success' ? filterConflictsByAmount(res.data.conflicts, deal) : [];
+    if(dragConf.length){
+      alert('注意：工事日が以下の案件（100万円以上）と重複しています。\n' +
+        dragConf.map(c => `・${c.id}（${fmtDate(c.constructionStart)}〜${fmtDate(c.constructionEnd)}）`).join('\n'));
     }
   });
 });
@@ -2336,11 +2348,12 @@ document.getElementById('btnSave').addEventListener('click', async () => {
 
     const extraRes = await gasPost('deal_extra_upsert', extraData);
     if(extraRes.status !== 'success'){ alert('追加情報の保存に失敗しました：' + extraRes.data); return; }
-    if(extraRes.data.conflicts && extraRes.data.conflicts.length){
+    const modalConf = filterConflictsByAmount(extraRes.data.conflicts, Object.assign({}, currentDeal, coreData));
+    if(modalConf.length){
       document.getElementById('modalConflict').style.display = 'block';
       document.getElementById('modalConflict').textContent =
-        '⚠ 工事日が重複しています： ' +
-        extraRes.data.conflicts.map(c => `${c.id}（${fmtDate(c.constructionStart)}〜${fmtDate(c.constructionEnd)}）`).join(' / ');
+        '⚠ 工事日が重複しています（100万円以上）： ' +
+        modalConf.map(c => `${c.id}（${fmtDate(c.constructionStart)}〜${fmtDate(c.constructionEnd)}）`).join(' / ');
     }
     if((newStatusVal === '受注' || newStatusVal === '完了') && newStatusVal !== prevStatus){
       celebrateStatusChange(Object.assign({}, currentDeal, extraData));
