@@ -255,6 +255,17 @@
   .cash-detail{ margin-top:14px; }
   .cash-detail summary{ cursor:pointer; font-weight:700; font-size:13px; padding:6px 0; }
   .cash-detail .mo{ display:block; font-size:10px; color:var(--ink-soft); font-family:'IBM Plex Sans JP',sans-serif; }
+  .pdf-modal{ max-width:760px; }
+  .pdf-card{ border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin:12px 0; background:#fff; }
+  .pdf-card.err{ border-color:var(--red); }
+  .pdf-card .pc-head{ display:flex; align-items:center; gap:8px; font-size:12px; color:var(--ink-soft); margin-bottom:8px; word-break:break-all; }
+  .pdf-card .pc-head input{ width:16px; height:16px; flex:0 0 16px; }
+  .pdf-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px 10px; }
+  .pdf-grid label{ display:block; font-size:11px; color:var(--ink-soft); font-weight:600; margin-bottom:2px; }
+  .pdf-grid input, .pdf-grid select{ width:100%; }
+  .pdf-grid .wide{ grid-column:1 / -1; }
+  .pdf-warn{ margin-top:8px; padding:6px 10px; background:var(--red-soft); color:var(--red); border-radius:6px; font-size:12px; line-height:1.6; }
+  .pdf-hint{ margin-top:6px; font-size:12px; color:var(--ink-soft); line-height:1.6; }
   .cash-count{ font-size:10px; color:var(--ink-soft); margin-left:4px; font-family:'IBM Plex Sans JP',sans-serif; }
   .ana-tabs{ display:flex; gap:6px; flex-wrap:wrap; margin:0 0 12px; }
   .ana-tabs button{ border:1px solid var(--line); background:#fff; border-radius:999px; padding:5px 12px; font-size:12px; cursor:pointer; color:var(--ink); font-family:inherit; }
@@ -579,6 +590,22 @@
 <div id="loadingOverlay">
   <div class="spinner"></div>
   <div id="loadingText">読み込み中…</div>
+</div>
+
+<div class="overlay" id="pdfOverlay">
+  <div class="modal pdf-modal">
+    <h2>📄 見積PDFから登録</h2>
+    <div class="cash-sub">
+      見積書のPDF（複数可）を選ぶと、<b>見積日・工事名（件名）・現場名（納入場所）・見積金額・担当者</b>を読み取ります。<br>
+      <b>顧客名はPDFの文字として入っていないので読み取れません。</b>選ぶか入力してください。内容を確認・修正してから、登録します。
+    </div>
+    <input type="file" id="pdfFiles" accept="application/pdf,.pdf" multiple>
+    <div id="pdfBody"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="btnPdfClose">閉じる</button>
+      <button class="btn btn-primary" id="btnPdfRegister" disabled>登録する</button>
+    </div>
+  </div>
 </div>
 
 <div class="overlay" id="cashOverlay">
@@ -1910,11 +1937,313 @@ function render(){
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openCashPanel()">💴 仕入・入金見込</button></div>
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openAnalysisPanel()">📊 受注率・分析</button></div>
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openNamePanel()">🧹 表記ゆれ</button></div>
+    <div class="s-item s-action"><button class="btn btn-ghost" onclick="openPdfImport()">📄 見積PDF</button></div>
     ${bulkCompleteTargets().length ? `<div class="s-item s-action"><button class="btn btn-ghost" onclick="openBulkComplete()">✅ 確定金額あり→完了（${bulkCompleteTargets().length}件）</button></div>` : ''}
   `;
 
   document.getElementById('lostCol').style.display = showLost ? 'flex' : 'none';
 }
+
+// ==== 見積PDFの読み取り（pdf.jsで取り出した文字の位置から、書式どおりに項目を拾う） ====
+// pages: [{ height, items: [{ str, x, y, w }] }]（x,yはPDF座標、yは下が原点）
+function parseQuotePages(pages, fileName){
+  const warn = [];
+  const out = { quoteNo:'', quoteDate:'', site:'', title:'', validity:'', assignee:'', assigneeFull:'', total:null, totalFrom:'', pages: pages.length, warnings: warn };
+
+  // 行にまとめる（同じ高さの文字を左から順につなぐ）
+  function rowsOf(page){
+    const its = page.items
+      .filter(i => i.str && i.str.trim() !== '')
+      .map(i => ({ s: i.str, x: i.x, x1: i.x + (i.w || 0), top: page.height - i.y }))
+      .sort((a, b) => a.top - b.top || a.x - b.x);
+    const rows = [];
+    its.forEach(i => {
+      const r = rows.find(r => Math.abs(r.top - i.top) <= 4);
+      if(r) r.items.push(i); else rows.push({ top: i.top, items: [i] });
+    });
+    rows.forEach(r => r.items.sort((a, b) => a.x - b.x));
+    rows.sort((a, b) => a.top - b.top);
+    return rows;
+  }
+  function joinItems(items){
+    let t = '', prev = null;
+    items.forEach(i => {
+      if(prev && i.x - prev.x1 > 2.5 && !/\s$/.test(t) && !/^\s/.test(i.s)) t += ' ';
+      t += i.s; prev = i;
+    });
+    return t.replace(/\s+/g, ' ').trim();
+  }
+  const rowText = (r, f) => joinItems(f ? r.items.filter(f) : r.items);
+  const nospace = s => s.replace(/\s+/g, '');
+  const afterLabel = (t, re) => t.replace(re, '').replace(/^[\s:：]+/, '').trim();
+
+  const p1 = rowsOf(pages[0]);
+
+  // 見積日（右上）
+  p1.filter(r => r.top < 130).forEach(r => {
+    const m = rowText(r, i => i.x > 500).match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+    if(m && !out.quoteDate) out.quoteDate = m[1] + '-' + String(m[2]).padStart(2, '0') + '-' + String(m[3]).padStart(2, '0');
+  });
+  // 見積No（左上）
+  p1.filter(r => r.top < 130).forEach(r => {
+    const t = rowText(r, i => i.x < 400);
+    const m = nospace(t).match(/見積No\.?([A-Za-z0-9\-]+)/);
+    if(m && !out.quoteNo) out.quoteNo = m[1];
+  });
+  // 件名・納入場所・有効期限（左の列。右の「受渡期日」「取引条件」の手前まで）
+  p1.forEach(r => {
+    const left = rowText(r, i => i.x < 340);
+    if(/^見積件名/.test(nospace(left)) && !out.title) out.title = afterLabel(left, /^見積件名/);
+    else if(/^納入場所/.test(nospace(left)) && !out.site) out.site = afterLabel(left, /^納入場所/);
+    else if(/^有効期限/.test(nospace(left)) && !out.validity) out.validity = afterLabel(left, /^有効期限/);
+    const right = rowText(r, i => i.x >= 540);
+    if(/担当者/.test(nospace(right)) && !out.assigneeFull){
+      const name = afterLabel(right, /^.*?担当者/);
+      if(name){ out.assigneeFull = name; out.assignee = name.split(/[\s　]+/)[0]; }
+    }
+  });
+
+  // 明細の「金額」列：1ページ目の金額を足し上げる（1ページ目が合計の内訳になっている書式）
+  let center = 609.5;
+  const head = p1.find(r => /品名/.test(nospace(rowText(r))) && /金額/.test(nospace(rowText(r))));
+  if(head){
+    const k = head.items.find(i => /金/.test(i.s)), g = head.items.find(i => /額/.test(i.s));
+    if(k && g) center = (k.x + g.x1) / 2;
+    else if(k) center = (k.x + k.x1) / 2;
+  } else warn.push('明細の見出しが見つからなかったので、標準の位置で金額を読んでいます');
+  const L = center - 55, R = center + 45;
+  const endRow = p1.find(r => /^特記事項/.test(nospace(rowText(r))));
+  let sum = 0, nAmt = 0;
+  p1.forEach(r => {
+    if(head && r.top <= head.top + 3) return;
+    if(endRow && r.top >= endRow.top - 3) return;
+    const t = nospace(rowText(r, i => i.x >= L && i.x1 <= R));
+    const m = t.match(/^([-−‐▲△]?)(\d[\d,]*)$/);
+    if(m){ const v = Number(m[2].replace(/,/g, '')); sum += m[1] ? -v : v; nAmt++; }
+  });
+
+  // 合計の行があれば優先（「合計 ¥1,160,000」）
+  let tot = null;
+  pages.forEach(pg => rowsOf(pg).forEach(r => {
+    const m = nospace(rowText(r)).match(/^合計(?:金額)?[:：]?[¥￥\\]*([\d,]+)/);
+    if(m) tot = Number(m[1].replace(/,/g, ''));
+  }));
+  if(tot !== null){ out.total = tot; out.totalFrom = '合計欄'; }
+  else if(nAmt){ out.total = sum; out.totalFrom = '明細の合計'; }
+
+  // ファイル名の末尾の金額（例：…_100000.pdf）と照合
+  const fm = String(fileName || '').match(/_(\d{4,})\.pdf$/i);
+  if(fm){
+    const fa = Number(fm[1]);
+    if(out.total === null){ out.total = fa; out.totalFrom = 'ファイル名'; warn.push('金額を読み取れなかったので、ファイル名の金額を入れています'); }
+    else if(fa !== out.total) warn.push('ファイル名の金額（' + fa.toLocaleString() + '円）と、読み取った金額（' + out.total.toLocaleString() + '円）が違います。確認してください');
+  }
+  if(pages.length > 1 && out.totalFrom === '明細の合計') warn.push('2ページ以降は合算していません（1ページ目の明細の合計です）。合計金額を確認してください');
+  if(out.total === null) warn.push('金額を読み取れませんでした');
+  if(!out.quoteDate) warn.push('見積日を読み取れませんでした');
+  return out;
+}
+
+
+// ==== 見積PDFの取り込み ====
+let pdfItems = [];
+function loadPdfJs(){
+  if(window.pdfjsLib) return Promise.resolve();
+  return new Promise((res, rej) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    sc.onload = () => {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      res();
+    };
+    sc.onerror = () => rej(new Error('PDFを読むための部品を読み込めませんでした（ネットワークを確認してください）'));
+    document.head.appendChild(sc);
+  });
+}
+async function readQuotePdf(file){
+  await loadPdfJs();
+  const doc = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  const pages = [];
+  for(let n = 1; n <= doc.numPages; n++){
+    const pg = await doc.getPage(n);
+    const tc = await pg.getTextContent();
+    pages.push({ height: pg.view[3], items: tc.items.map(i => ({ str: i.str, x: i.transform[4], y: i.transform[5], w: i.width })) });
+  }
+  if(!pages.some(pg => pg.items.length)) throw new Error('文字を読み取れませんでした（スキャンした画像のPDFは読めません）');
+  return parseQuotePages(pages, file.name);
+}
+function pdfNorm(s){ return String(s || '').normalize('NFKC').toLowerCase().replace(/[\s\-()\[\]【】・]/g, ''); }
+// 現場名（納入場所）が同じ・近い既存案件を探す
+function pdfCandidates(p){
+  const site = pdfNorm(p.site);
+  const base = pdfNorm(String(p.site || '').normalize('NFKC').split('(')[0]);
+  if(base.length < 3) return [];
+  const t = pdfNorm(p.title);
+  return deals.map(d => {
+    const ds = pdfNorm(d.siteName);
+    if(ds.length < 3) return null;
+    let sc = 0;
+    if(ds === site) sc = 3;
+    else if(ds.indexOf(base) >= 0 || base.indexOf(ds) >= 0) sc = 2;
+    if(!sc) return null;
+    if(t && pdfNorm(d.projectName) === t) sc += 1;
+    return { d, sc };
+  }).filter(Boolean).sort((a, b) => b.sc - a.sc).slice(0, 5);
+}
+function pdfKnownAssignee(sur){
+  if(!sur) return '';
+  const names = Array.from(new Set(deals.map(d => d.assignee).filter(Boolean)));
+  return names.find(n => n === sur) || names.find(n => n.indexOf(sur) === 0) || sur;
+}
+function pdfDefaultBranch(assignee){
+  const cnt = {};
+  deals.forEach(d => { if(assignee && d.assignee && d.assignee.indexOf(assignee) === 0) cnt[d.branch] = (cnt[d.branch] || 0) + 1; });
+  const top = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0];
+  return top || BRANCHES[0];
+}
+function openPdfImport(){
+  pdfItems = [];
+  document.getElementById('pdfBody').innerHTML = '';
+  document.getElementById('pdfFiles').value = '';
+  document.getElementById('btnPdfRegister').disabled = true;
+  document.getElementById('pdfOverlay').classList.add('open');
+}
+document.getElementById('pdfFiles').addEventListener('change', async e => {
+  const files = Array.from(e.target.files || []);
+  if(!files.length) return;
+  const body = document.getElementById('pdfBody');
+  pdfItems = [];
+  for(let i = 0; i < files.length; i++){
+    body.innerHTML = '<div class="pdf-hint">読み取り中… ' + (i + 1) + '/' + files.length + '</div>';
+    try{
+      pdfItems.push({ file: files[i], p: await readQuotePdf(files[i]) });
+    }catch(err){
+      pdfItems.push({ file: files[i], error: String(err && err.message || err) });
+    }
+  }
+  renderPdfItems();
+});
+function renderPdfItems(){
+  const body = document.getElementById('pdfBody');
+  body.innerHTML = pdfItems.map((it, i) => {
+    const nm = escapeHtml(it.file.name);
+    if(it.error) return `<div class="pdf-card err"><div class="pc-head">${nm}</div><div class="pdf-warn">${escapeHtml(it.error)}</div></div>`;
+    const p = it.p;
+    const cands = pdfCandidates(p);
+    it.cands = cands;
+    const useExisting = cands.length && cands[0].sc >= 2;
+    const assignee = pdfKnownAssignee(p.assignee);
+    const opts = ['<option value="new">新規案件として登録</option>'].concat(cands.map(c =>
+      `<option value="${escapeHtml(c.d.id)}" ${useExisting && c === cands[0] ? 'selected' : ''}>既存を更新：${escapeHtml(dealLabel(c.d).slice(1, -1))}（${escapeHtml(c.d.branch)}・${escapeHtml(effStatus(c.d) || '未設定')}）</option>`)).join('');
+    const brOpts = BRANCHES.map(b => `<option value="${escapeHtml(b)}" ${b === pdfDefaultBranch(assignee) ? 'selected' : ''}>${escapeHtml(b)}</option>`).join('');
+    const top = useExisting ? cands[0].d : null;
+    return `<div class="pdf-card" id="pdfc-${i}">
+      <div class="pc-head"><input type="checkbox" id="pdf-use-${i}" checked> <span>${nm}${p.quoteNo ? '　見積No.' + escapeHtml(p.quoteNo) : ''}　<span>（有効期限：${escapeHtml(p.validity || '－')}）</span></span></div>
+      <div class="pdf-grid">
+        <div class="wide"><label>登録のしかた</label><select id="pdf-mode-${i}" onchange="pdfRefresh(${i})">${opts}</select></div>
+        <div><label>顧客名（PDFにないので入力）</label><input id="pdf-cust-${i}" list="dl-customerName" value="${escapeHtml(top ? (top.customerName || '') : '')}" oninput="pdfRefresh(${i})"></div>
+        <div><label>現場名（納入場所）</label><input id="pdf-site-${i}" list="dl-siteName" value="${escapeHtml(p.site)}"></div>
+        <div class="wide"><label>工事名（見積件名）</label><input id="pdf-title-${i}" value="${escapeHtml(p.title)}" oninput="pdfRefresh(${i})"></div>
+        <div><label>見積金額（円・税別）</label><input id="pdf-amt-${i}" type="number" value="${p.total === null ? '' : p.total}" oninput="pdfRefresh(${i})"></div>
+        <div><label>見積提出日</label><input id="pdf-date-${i}" type="date" value="${escapeHtml(p.quoteDate)}" oninput="pdfRefresh(${i})"></div>
+        <div><label>担当者</label><input id="pdf-asg-${i}" list="dl-assignee" value="${escapeHtml(assignee)}" oninput="pdfRefresh(${i})"></div>
+        <div id="pdf-brwrap-${i}"><label>拠点（新規のとき）</label><select id="pdf-br-${i}">${brOpts}</select></div>
+      </div>
+      ${p.warnings.length ? '<div class="pdf-warn">' + p.warnings.map(escapeHtml).join('<br>') + '</div>' : ''}
+      <div class="pdf-hint" id="pdf-hint-${i}"></div>
+    </div>`;
+  }).join('');
+  pdfItems.forEach((it, i) => { if(!it.error) pdfRefresh(i); });
+  document.getElementById('btnPdfRegister').disabled = !pdfItems.some(it => !it.error);
+}
+function pdfVal(id){ const el = document.getElementById(id); return el ? el.value.trim() : ''; }
+function pdfRefresh(i){
+  const mode = pdfVal('pdf-mode-' + i);
+  const hint = document.getElementById('pdf-hint-' + i);
+  const wrap = document.getElementById('pdf-brwrap-' + i);
+  if(!hint) return;
+  if(mode === 'new'){
+    wrap.style.display = '';
+    hint.textContent = 'シートに新しい行を追加します。';
+    return;
+  }
+  wrap.style.display = 'none';
+  const d = deals.find(x => x.id === mode);
+  if(!d){ hint.textContent = ''; return; }
+  const amt = pdfVal('pdf-amt-' + i), dt = pdfVal('pdf-date-' + i);
+  const ch = [];
+  if(amt !== '' && String(d.quoteAmount) !== String(Number(amt))) ch.push('見積金額 ' + (d.quoteAmount !== '' && d.quoteAmount != null ? fmtYen(d.quoteAmount) : '（空）') + ' → ' + fmtYen(Number(amt)));
+  if(dt && toDateInputVal(d.quoteDate) !== dt) ch.push('見積提出日 ' + (d.quoteDate ? fmtDate(d.quoteDate) : '（空）') + ' → ' + fmtDate(dt));
+  if(!d.projectName && pdfVal('pdf-title-' + i)) ch.push('工事名を入力');
+  if(!d.customerName && pdfVal('pdf-cust-' + i)) ch.push('顧客名を入力');
+  if(!d.assignee && pdfVal('pdf-asg-' + i)) ch.push('担当者を入力');
+  hint.textContent = ch.length ? '既存の案件を更新します：' + ch.join('、') + '（現場名・その他の項目は変えません）' : '変わる項目はありません。';
+}
+document.getElementById('btnPdfClose').addEventListener('click', () => document.getElementById('pdfOverlay').classList.remove('open'));
+document.getElementById('pdfOverlay').addEventListener('click', e => { if(e.target.id === 'pdfOverlay') e.target.classList.remove('open'); });
+document.getElementById('btnPdfRegister').addEventListener('click', async () => {
+  const targets = pdfItems.map((it, i) => ({ it, i })).filter(x => !x.it.error && document.getElementById('pdf-use-' + x.i).checked);
+  if(!targets.length){ alert('登録する見積がありません'); return; }
+  const nNew = targets.filter(x => pdfVal('pdf-mode-' + x.i) === 'new').length;
+  if(!confirm('見積 ' + targets.length + '件 を登録します（新規 ' + nNew + '件・既存の更新 ' + (targets.length - nNew) + '件）。よろしいですか？')) return;
+  const btn = document.getElementById('btnPdfRegister');
+  btn.disabled = true;
+  let ok = 0; const problems = [];
+  for(let k = 0; k < targets.length; k++){
+    const i = targets[k].i;
+    btn.textContent = '登録中… ' + (k + 1) + '/' + targets.length;
+    const label = targets[k].it.file.name;
+    const mode = pdfVal('pdf-mode-' + i);
+    const amtRaw = pdfVal('pdf-amt-' + i);
+    const amount = amtRaw === '' ? '' : Number(amtRaw);
+    const vals = { customerName: pdfVal('pdf-cust-' + i), siteName: pdfVal('pdf-site-' + i), projectName: pdfVal('pdf-title-' + i), assignee: pdfVal('pdf-asg-' + i), quoteAmount: amount };
+    const qdate = pdfVal('pdf-date-' + i);
+    try{
+      if(mode === 'new'){
+        const branch = pdfVal('pdf-br-' + i);
+        const cr = await gasPost('deal_core_create', Object.assign({ branch }, vals));
+        if(cr.status !== 'success'){ problems.push(label + '：作成に失敗（' + cr.data + '）'); continue; }
+        if(qdate){
+          const er = await gasPost('deal_extra_upsert', { id: cr.data.id, quoteDate: qdate });
+          if(er.status !== 'success'){ problems.push(label + '：見積提出日を保存できませんでした'); continue; }
+        }
+        ok++;
+      } else {
+        const d = deals.find(x => x.id === mode);
+        if(!d){ problems.push(label + '：更新先の案件が見つかりません'); continue; }
+        const upd = {};
+        if(amount !== '' && String(d.quoteAmount) !== String(amount)) upd.quoteAmount = amount;
+        ['projectName', 'customerName', 'assignee'].forEach(f => { if(!d[f] && vals[f]) upd[f] = vals[f]; });
+        let targetId = d.id;
+        const keys = Object.keys(upd);
+        if(keys.length){
+          const baseCore = {}; keys.forEach(f => { baseCore[f] = d[f]; });
+          const cr = await gasPost('deal_core_update', Object.assign({ id: d.id, branch: d.branch, rowNum: d.rowNum, origDealNo: d.dealNo, changedCore: keys, baseCore, force: false }, upd));
+          if(cr.status === 'conflict'){ problems.push(label + '：他の人が先に更新していたため見送りました（再読み込みして、もう一度お試しください）'); continue; }
+          if(cr.status !== 'success'){ problems.push(label + '：更新に失敗（' + cr.data + '）'); continue; }
+          if(cr.data && cr.data.id) targetId = cr.data.id;
+        }
+        if(qdate && toDateInputVal(d.quoteDate) !== qdate){
+          const er = await gasPost('deal_extra_upsert', { id: targetId, quoteDate: qdate, baseUpdatedAt: d.updatedAt || '', force: false });
+          if(er.status === 'conflict'){ problems.push(label + '：見積提出日は、他の人が先に更新していたため見送りました'); continue; }
+          if(er.status !== 'success'){ problems.push(label + '：見積提出日を保存できませんでした'); continue; }
+        }
+        ok++;
+      }
+    }catch(err){
+      problems.push(label + '：' + String(err && err.message || err));
+    }
+  }
+  btn.textContent = '登録する';
+  btn.disabled = false;
+  await loadDeals({ force: true });
+  if(problems.length){
+    alert(ok + '件を登録しました。\n\n登録できなかったもの：\n' + problems.join('\n'));
+  } else {
+    document.getElementById('pdfOverlay').classList.remove('open');
+    showToast('✅ 見積PDFから ' + ok + '件を登録しました');
+  }
+});
 
 // ==== 確定金額が入っている案件を「完了」へ一括移動 ====
 // 対象：手動ステータスが 見積中／受注／工事中 で、確定金額が入っているもの（失注・完了は対象外）
