@@ -1690,21 +1690,24 @@ function findConflicts(){
   return { conflictIds, pairs };
 }
 
-// 案件Noが同じ行が複数拠点にまたがっている場合、1件にまとめる
-// （編集は最初に見つかった拠点・行が対象になる。他拠点にも存在することは branches に記録）
+// 案件Noが同じ行が複数拠点（シート）にまたがっている場合も、別々の案件として表示する。
+// 同じシートの中で案件Noが同じ行は、これまでどおり最初の1件だけを表示する（idが同じになるため）。
+// 他のシートにも同じ案件Noがあるカードには dupBranches（そのシート名）を付け、カードに「重複」バッジを出す。
 function dedupeByDealNo(list){
-  const seen = new Map();
+  const byNo = {};
+  list.forEach(d => { if(d.dealNo){ (byNo[d.dealNo] = byNo[d.dealNo] || new Set()).add(d.branch); } });
+  const seen = new Set();
   const result = [];
   list.forEach(d => {
-    if(!d.dealNo){ result.push(Object.assign({}, d, { branches: [d.branch] })); return; }
-    if(seen.has(d.dealNo)){
-      const existing = seen.get(d.dealNo);
-      if(existing.branches.indexOf(d.branch) < 0) existing.branches.push(d.branch);
-    } else {
-      const merged = Object.assign({}, d, { branches: [d.branch] });
-      seen.set(d.dealNo, merged);
-      result.push(merged);
+    const copy = Object.assign({}, d, { branches: [d.branch] });
+    if(d.dealNo){
+      const key = d.branch + '|' + d.dealNo;
+      if(seen.has(key)) return;
+      seen.add(key);
+      const others = Array.from(byNo[d.dealNo]).filter(x => x !== d.branch);
+      if(others.length) copy.dupBranches = others;
     }
+    result.push(copy);
   });
   return result;
 }
@@ -2312,7 +2315,7 @@ function renderCard(d, hasConflict, justUpdated){
   el.innerHTML = `
     ${uInfo ? `<div class="status-flag">${unreadLabel(uInfo.kind)}</div>` : ''}
     ${justUpdated ? `<div class="updated-flag">✨ 更新されました</div>` : ''}
-    <span class="branch-tag">${escapeHtml((d.branches && d.branches.length > 1) ? d.branches.join(' / ') : d.branch)}</span>${sheetNoHtml(d)}
+    <span class="branch-tag">${escapeHtml((d.branches && d.branches.length > 1) ? d.branches.join(' / ') : d.branch)}</span>${sheetNoHtml(d)}${d.dupBranches ? `<span class="badge b-red" title="同じ案件Noが他のシートにもあります">重複：${escapeHtml(d.dupBranches.join('・'))}にも</span>` : ''}
     <div class="cname">${escapeHtml(d.siteName || d.projectName || '(現場未設定)')}</div>
     <div class="pname">${escapeHtml(d.customerName||'')}${d.projectName && d.siteName ? '　' + escapeHtml(d.projectName) : ''}</div>
     <div class="row">
