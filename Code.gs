@@ -41,7 +41,7 @@ const EXTRA_HEADERS = [
   'constructionStart', 'constructionEnd',
   'supplier', 'purchaseDate', 'purchaseAmount', 'billingMonth',
   'paymentTerms', 'receiptMonth', 'advanceAmount', 'advanceMonth',
-  'nextActionDate', 'nextActionNote',
+  'nextActionDate', 'nextActionNote', 'excluded',
   'orderedAt',
   'updatedAt'
 ];
@@ -275,6 +275,7 @@ function dealList() {
       advanceMonth: normMonthStr_(extra.advanceMonth),
       nextActionDate: extra.nextActionDate || '',
       nextActionNote: extra.nextActionNote || '',
+      excluded: extra.excluded ? '1' : '',
       updatedAt: extra.updatedAt || '',
       elapsedDays: calcElapsedDays_(baseDate, status)
     });

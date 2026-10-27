@@ -753,6 +753,7 @@
       </div>
       <div class="field"><label>見積提出日</label><input type="date" id="f-quoteDate"></div>
       <div class="field" id="fw-nextActionDate"><label>次回アクション期限</label><input type="date" id="f-nextActionDate"></div>
+      <div class="field full" id="fw-excluded"><label>集計の扱い（同じ案件が別のシートにもあるときなど）</label><select id="f-excluded"><option value="">集計に含める</option><option value="1">集計から外す（カードは表示したまま）</option></select></div>
       <div class="field full" id="fw-nextActionNote"><label>次回アクション内容</label><input id="f-nextActionNote" placeholder="例：再見積提出・電話フォロー"></div>
       <div class="field full" id="lostReasonField"><label>失注理由</label><textarea id="f-lostReason"></textarea></div>
       <div class="field full"><label>受注の決め手</label><textarea id="f-winFactor"></textarea></div>
@@ -902,7 +903,7 @@ function getPanelDeals(){
   const conf = findConflicts();
   if(conflictOnlyVal) list = list.filter(d => conf.conflictIds.has(d.id));
   if(unreadOnlyVal) list = list.filter(d => unreadInfo[d.id]);
-  return list.filter(d => effStatus(d) !== '失注');
+  return list.filter(d => effStatus(d) !== '失注' && !isExcluded(d));
 }
 function ymLabel(ym){ const p = ym.split('-'); return `${p[0]}年${Number(p[1])}月`; }
 function cashCell(sum, n){ return n ? `${fmtYen(sum)}<span class="cash-count">${n}件</span>` : '－'; }
@@ -1033,6 +1034,7 @@ function quoteToOrderDays(d){
 function anaAggregate(list){
   const a = { won: 0, lost: 0, open: 0, wonAmt: 0, lostAmt: 0, openAmt: 0, dayList: [] };
   list.forEach(d => {
+    if(isExcluded(d)) return;
     const st = effStatus(d), amt = amountOf(d) || 0;
     if(ANA_WON.indexOf(st) >= 0){
       a.won++; a.wonAmt += amt;
@@ -1671,7 +1673,7 @@ function filterConflictsByAmount(list, selfDeal){
 let conflictDetailOpen = false;
 function toggleConflictDetail(){ conflictDetailOpen = !conflictDetailOpen; render(); }
 function findConflicts(){
-  const active = deals.filter(d => (effStatus(d) === '受注' || effStatus(d) === '工事中') && d.constructionStart && amountOf(d) >= CONFLICT_MIN_AMOUNT);
+  const active = deals.filter(d => !isExcluded(d) && (effStatus(d) === '受注' || effStatus(d) === '工事中') && d.constructionStart && amountOf(d) >= CONFLICT_MIN_AMOUNT);
   const conflictIds = new Set();
   const pairs = [];
   for(let i=0;i<active.length;i++){
@@ -1712,6 +1714,8 @@ function dedupeByDealNo(list){
   return result;
 }
 
+// 「集計から外す」が付いた案件か（カードは表示するが、金額・件数・分析・入金見込・重複判定の集計には入れない）
+function isExcluded(d){ return d && String(d.excluded) === '1'; }
 function amountOf(d){
   const v = d.confirmedAmount !== '' && d.confirmedAmount != null ? d.confirmedAmount : d.quoteAmount;
   const n = Number(v);
@@ -1729,7 +1733,7 @@ function searchBlob(d){
     d.branches && d.branches.length ? d.branches.join(' ') : d.branch, d.dealNo, d.no, d.rowNum ? d.rowNum + '行目' : '',
     d.customerName, d.siteName, d.projectName, d.summary, d.source, d.assignee, d.rank,
     d.currentStatus, d.pendingIssue, d.lostReason, d.winFactor, d.supplier, d.paymentTerms, d.nextActionNote,
-    st, st === '見積中' ? '見積提出済' : '', d.expectedOrderMonth, d.receiptMonth, d.billingMonth,
+    st, st === '見積中' ? '見積提出済' : '', isExcluded(d) ? '集計外' : '', d.dupBranches ? '重複' : '', d.expectedOrderMonth, d.receiptMonth, d.billingMonth,
     d.quoteAmount, d.confirmedAmount, d.purchaseAmount
   ];
   return normSearch(parts.filter(v => v !== '' && v != null).join(' '));
@@ -1916,8 +1920,9 @@ function render(){
   ['', '見積中','受注','工事中','完了','失注'].forEach(status => {
     const list = sortDeals(visible.filter(d => effStatus(d) === status));
     const key = status || '未設定';
-    document.getElementById(`cnt-${key}`).textContent = list.length;
-    const colTotal = list.reduce((sum, d) => sum + amountOf(d), 0);
+    const counted = list.filter(d => !isExcluded(d));
+    document.getElementById(`cnt-${key}`).textContent = counted.length;
+    const colTotal = counted.reduce((sum, d) => sum + amountOf(d), 0);
     document.getElementById(`amt-${key}`).textContent = colTotal ? fmtYen(colTotal) : '';
     const body = document.getElementById(`col-${key}`);
     body.innerHTML = '';
@@ -1925,7 +1930,7 @@ function render(){
   });
 
   // 全体サマリー（現在の絞り込み条件・失注表示設定を反映）
-  const summaryDeals = showLost ? visible : visible.filter(d => effStatus(d) !== '失注');
+  const summaryDeals = (showLost ? visible : visible.filter(d => effStatus(d) !== '失注')).filter(d => !isExcluded(d));
   const totalQuote = summaryDeals.reduce((s,d) => s + (Number(d.quoteAmount)||0), 0);
   const totalConfirmed = summaryDeals.filter(d => d.confirmedAmount !== '' && d.confirmedAmount != null)
     .reduce((s,d) => s + (Number(d.confirmedAmount)||0), 0);
@@ -2315,7 +2320,7 @@ function renderCard(d, hasConflict, justUpdated){
   el.innerHTML = `
     ${uInfo ? `<div class="status-flag">${unreadLabel(uInfo.kind)}</div>` : ''}
     ${justUpdated ? `<div class="updated-flag">✨ 更新されました</div>` : ''}
-    <span class="branch-tag">${escapeHtml((d.branches && d.branches.length > 1) ? d.branches.join(' / ') : d.branch)}</span>${sheetNoHtml(d)}${d.dupBranches ? `<span class="badge b-red" title="同じ案件Noが他のシートにもあります">重複：${escapeHtml(d.dupBranches.join('・'))}にも</span>` : ''}
+    <span class="branch-tag">${escapeHtml((d.branches && d.branches.length > 1) ? d.branches.join(' / ') : d.branch)}</span>${sheetNoHtml(d)}${isExcluded(d) ? `<span class="badge b-grey" title="集計に入れていません（編集画面で戻せます）">集計外</span>` : ''}${d.dupBranches ? `<span class="badge b-red" title="同じ案件Noが他のシートにもあります">重複：${escapeHtml(d.dupBranches.join('・'))}にも</span>` : ''}
     <div class="cname">${escapeHtml(d.siteName || d.projectName || '(現場未設定)')}</div>
     <div class="pname">${escapeHtml(d.customerName||'')}${d.projectName && d.siteName ? '　' + escapeHtml(d.projectName) : ''}</div>
     <div class="row">
@@ -2459,7 +2464,7 @@ document.getElementById('toggleLost').addEventListener('click', () => {
 const overlay = document.getElementById('overlay');
 const BRANCHES = ['営業部','営業部（ビルメン）','１課','２課','３課','函館','旭川'];
 const coreFields = ['dealNo','assignee','customerName','source','siteName','projectName','summary','occurredDate','rank','quoteAmount','confirmedAmount','expectedOrderMonth','profitRate','currentStatus','pendingIssue'];
-const editFields = ['status','quoteDate','lostReason','winFactor','constructionStart','constructionEnd','supplier','purchaseDate','purchaseAmount','billingMonth','paymentTerms','receiptMonth','advanceAmount','advanceMonth','nextActionDate','nextActionNote'];
+const editFields = ['status','quoteDate','lostReason','winFactor','constructionStart','constructionEnd','supplier','purchaseDate','purchaseAmount','billingMonth','paymentTerms','receiptMonth','advanceAmount','advanceMonth','nextActionDate','nextActionNote','excluded'];
 let currentDeal = null;
 let isNewMode = false;
 let modalInitial = {};
