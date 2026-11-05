@@ -763,6 +763,10 @@
       <div class="field"><label>仕入日</label><input type="date" id="f-purchaseDate"></div>
       <div class="field"><label>機器仕入れ金額（円）</label><input type="number" id="f-purchaseAmount"></div>
       <div class="field"><label>支払い月（仕入先への支払い）</label><input type="month" id="f-billingMonth"><span class="field-hint" id="payMonthHint"></span></div>
+      <div class="field"><label>部品・部材 仕入先</label><input id="f-partsSupplier" list="dl-supplier" autocomplete="off"></div>
+      <div class="field"><label>部品・部材 仕入日</label><input type="date" id="f-partsDate"></div>
+      <div class="field"><label>部品・部材仕入れ金額（円）</label><input type="number" id="f-partsAmount"></div>
+      <div class="field"><label>部品・部材 支払い月</label><input type="month" id="f-partsBillingMonth"><span class="field-hint" id="partsPayMonthHint"></span></div>
       <div class="field full"><label>入金条件（注文書の内容）</label><input id="f-paymentTerms" placeholder="例：月末締め翌月末払い"></div>
       <div class="field"><label>入金予定月</label><input type="month" id="f-receiptMonth"></div>
       <div class="field"><label>前入金額（円）</label><input type="number" id="f-advanceAmount"></div>
@@ -830,6 +834,12 @@ function payMonthOf(d){
   }
   return { month: '', auto: false };
 }
+// 部品・部材の仕入：金額（未入力ならnull）と支払い月（機器の仕入と同じ規則：空欄なら仕入日の翌々月）
+function partsOf(d){
+  const n = Number(d.partsAmount);
+  return (d.partsAmount !== '' && d.partsAmount != null && !isNaN(n)) ? n : null;
+}
+function payMonthOfParts(d){ return payMonthOf({ billingMonth: d.partsBillingMonth, purchaseDate: d.partsDate }); }
 // 前入金額（入っていなければ0）。入金見込の集計では、金額から差し引く
 function advanceOf(d){
   const n = Number(d.advanceAmount);
@@ -841,15 +851,18 @@ function purchaseLineHtml(d){
   const recv = normMonth(d.receiptMonth);
   const hasAdv = d.advanceAmount !== '' && d.advanceAmount != null && !isNaN(d.advanceAmount);
   const advM = normMonth(d.advanceMonth);
-  if(!hasAmt && !pay.month && !recv && !hasAdv && !advM) return '';
+  const pAmt = partsOf(d), pPay = payMonthOfParts(d);
+  if(!hasAmt && !pay.month && !recv && !hasAdv && !advM && pAmt === null && !pPay.month) return '';
   return `<div class="row mono purchase-line">` +
     ((hasAdv || advM) ? `<span class="badge b-green">前入金 ${hasAdv ? fmtYen(d.advanceAmount) : ''}${advM ? ' ' + escapeHtml(advM) : ''}</span>` : '') +
     ((hasAmt || pay.month) ? `<span>仕入 ${hasAmt ? fmtYen(d.purchaseAmount) : '－'}</span>` : '') +
     (pay.month ? `<span class="badge b-grey">支払 ${escapeHtml(pay.month)}${pay.auto ? '（予）' : ''}</span>` : '') +
+    ((pAmt !== null || pPay.month) ? `<span>部材 ${pAmt !== null ? fmtYen(pAmt) : '－'}</span>` : '') +
+    (pPay.month ? `<span class="badge b-grey">部材支払 ${escapeHtml(pPay.month)}${pPay.auto ? '（予）' : ''}</span>` : '') +
     (recv ? `<span class="badge b-green" title="${escapeHtml(d.paymentTerms || '')}">入金 ${escapeHtml(recv)}</span>` : '') +
     `</div>`;
 }
-// この案件の入出金の内訳（入金＝前入金＋残り、出金＝仕入）
+// この案件の入出金の内訳（入金＝前入金＋残り、出金＝機器の仕入＋部品・部材の仕入）
 function cashFlowOf(d){
   const sales = amountOf(d);
   const adv = advanceOf(d);
@@ -858,12 +871,15 @@ function cashFlowOf(d){
   const hasPur = d.purchaseAmount !== '' && d.purchaseAmount != null && !isNaN(pn);
   const pur = hasPur ? pn : 0;
   const pay = payMonthOf(d);
+  const pp = partsOf(d), pPay = payMonthOfParts(d);
+  const parts = pp === null ? 0 : pp;
   const inTotal = adv + remain;
   return {
     sales, adv, advMonth: normMonth(d.advanceMonth),
     remain, recvMonth: normMonth(d.receiptMonth),
     pur, hasPur, payMonth: pay.month, payAuto: pay.auto,
-    inTotal, net: inTotal - pur,
+    parts, hasParts: pp !== null, partsMonth: pPay.month, partsAuto: pPay.auto,
+    inTotal, net: inTotal - pur - parts,
     estimated: !(d.confirmedAmount !== '' && d.confirmedAmount != null)
   };
 }
@@ -875,20 +891,27 @@ function updateCashBox(){
   const cf = cashFlowOf({
     confirmedAmount: v('c-confirmedAmount'), quoteAmount: v('c-quoteAmount'),
     purchaseAmount: v('f-purchaseAmount'), purchaseDate: v('f-purchaseDate'), billingMonth: v('f-billingMonth'),
+    partsAmount: v('f-partsAmount'), partsDate: v('f-partsDate'), partsBillingMonth: v('f-partsBillingMonth'),
     advanceAmount: v('f-advanceAmount'), advanceMonth: v('f-advanceMonth'), receiptMonth: v('f-receiptMonth')
   });
-  if(!cf.sales && !cf.hasPur && !cf.adv){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  if(!cf.sales && !cf.hasPur && !cf.hasParts && !cf.adv){ box.style.display = 'none'; box.innerHTML = ''; return; }
   box.style.display = '';
   const m = x => x ? '（' + escapeHtml(x) + '）' : '（月未入力）';
   let html = '<div class="cb-title">💴 入出金の内訳</div>';
   html += `<div>契約金額：${fmtYen(cf.sales)}${cf.estimated ? '（見積金額）' : '（確定金額）'}</div>`;
   html += `<div>入金：${cf.adv ? '前入金 ' + fmtYen(cf.adv) + m(cf.advMonth) + ' ＋ ' : ''}${cf.remain ? '残り ' + fmtYen(cf.remain) + m(cf.recvMonth) : (cf.adv ? '残りなし' : '－')}　計 ${fmtYen(cf.inTotal)}</div>`;
-  html += `<div>出金：${cf.hasPur ? '仕入 ' + fmtYen(cf.pur) + '（支払 ' + (cf.payMonth ? escapeHtml(cf.payMonth) + (cf.payAuto ? '・予' : '') : '月未入力') + '）' : '仕入 未入力'}</div>`;
-  if(cf.sales || cf.adv) html += `<div class="cb-net ${cf.net < 0 ? 'neg' : ''}">差引（入金計−仕入）：${signedYen(cf.net)}</div>`;
+  html += `<div>出金：機器 ${cf.hasPur ? fmtYen(cf.pur) + '（支払 ' + (cf.payMonth ? escapeHtml(cf.payMonth) + (cf.payAuto ? '・予' : '') : '月未入力') + '）' : '未入力'}</div>`;
+  html += `<div>　　　部品・部材 ${cf.hasParts ? fmtYen(cf.parts) + '（支払 ' + (cf.partsMonth ? escapeHtml(cf.partsMonth) + (cf.partsAuto ? '・予' : '') : '月未入力') + '）' : '未入力'}　出金計 ${fmtYen(cf.pur + cf.parts)}</div>`;
+  if(cf.sales || cf.adv) html += `<div class="cb-net ${cf.net < 0 ? 'neg' : ''}">差引（入金計−出金計）：${signedYen(cf.net)}</div>`;
   box.innerHTML = html;
 }
 function updatePayMonthHint(){ updatePayMonthHintCore(); updateCashBox(); }
 function updatePayMonthHintCore(){
+  const ph = document.getElementById('partsPayMonthHint');
+  if(ph){
+    const pbm = document.getElementById('f-partsBillingMonth').value, ppd = document.getElementById('f-partsDate').value;
+    ph.textContent = pbm ? '' : (ppd ? `空欄なら仕入日の翌々月（${addMonths(ppd.slice(0, 7), 2)}）として扱います` : '空欄なら仕入日の翌々月として扱います');
+  }
   const hint = document.getElementById('payMonthHint');
   if(!hint) return;
   const bm = document.getElementById('f-billingMonth').value;
@@ -925,7 +948,14 @@ function openCashPanel(){
       const pm = payMonthOf(d).month;
       if(pm){ const m = ensure(pm); m.pay += amt; m.payN++; }
       else { unschedPay += amt; unschedN++; }
-    } else if(isWon){
+    }
+    const pAmt = partsOf(d);
+    if(pAmt !== null){
+      const pm = payMonthOfParts(d).month;
+      if(pm){ const m = ensure(pm); m.pay += pAmt; m.payN++; }
+      else { unschedPay += pAmt; unschedN++; }
+    }
+    if(!hasAmt && isWon && pAmt === null){
       noPurN++;
       const profit = Number(d.profit) || Number(d.plannedProfit) || 0;
       const sales = amountOf(d);
@@ -942,7 +972,7 @@ function openCashPanel(){
         if(cf.recvMonth){ const m = ensure(cf.recvMonth); m.recv += cf.remain; m.recvN++; }
         else { noRecvM += cf.remain; noRecvMN++; }
       }
-      if(cf.hasPur || cf.adv > 0 || cf.recvMonth || cf.advMonth) detail.push({ d, cf });
+      if(cf.hasPur || cf.hasParts || cf.adv > 0 || cf.recvMonth || cf.advMonth) detail.push({ d, cf });
     }
   });
 
@@ -988,21 +1018,22 @@ function openCashPanel(){
   if(detail.length){
     detail.sort((a, b) => (a.cf.recvMonth || a.cf.advMonth || '9999').localeCompare(b.cf.recvMonth || b.cf.advMonth || '9999'));
     const mo = x => x ? `<span class="mo">${escapeHtml(x)}</span>` : '';
-    let tS = 0, tA = 0, tR = 0, tP = 0, tN = 0;
+    let tS = 0, tA = 0, tR = 0, tP = 0, tQ = 0, tN = 0;
     let rows = '';
     detail.forEach(({ d, cf }) => {
-      tS += cf.sales; tA += cf.adv; tR += cf.remain; tP += cf.pur; tN += cf.net;
+      tS += cf.sales; tA += cf.adv; tR += cf.remain; tP += cf.pur; tQ += cf.parts; tN += cf.net;
       rows += `<tr><td>${escapeHtml(dealLabel(d).slice(1, -1))}</td>` +
         `<td class="num">${cf.sales ? fmtYen(cf.sales) : '－'}${cf.estimated && cf.sales ? '<span class="mo">見積</span>' : ''}</td>` +
         `<td class="num">${cf.adv ? fmtYen(cf.adv) : '－'}${mo(cf.advMonth)}</td>` +
         `<td class="num">${cf.remain ? fmtYen(cf.remain) : '－'}${mo(cf.recvMonth)}</td>` +
         `<td class="num">${cf.hasPur ? fmtYen(cf.pur) : '－'}${mo(cf.payMonth ? cf.payMonth + (cf.payAuto ? '（予）' : '') : '')}</td>` +
+        `<td class="num">${cf.hasParts ? fmtYen(cf.parts) : '－'}${mo(cf.partsMonth ? cf.partsMonth + (cf.partsAuto ? '（予）' : '') : '')}</td>` +
         `<td class="num ${cf.net < 0 ? 'neg' : ''}">${(cf.sales || cf.adv) ? signedYen(cf.net) : '－'}</td></tr>`;
     });
     html += `<details class="cash-detail"><summary>案件ごとの入出金の内訳（${detail.length}件）</summary>` +
-      `<div class="cash-table-wrap"><table class="cash-table"><thead><tr><th>案件</th><th>契約金額</th><th>前入金</th><th>残り入金</th><th>仕入（出金）</th><th>差引</th></tr></thead><tbody>${rows}</tbody>` +
-      `<tfoot><tr><td>合計</td><td class="num">${fmtYen(tS)}</td><td class="num">${fmtYen(tA)}</td><td class="num">${fmtYen(tR)}</td><td class="num">${fmtYen(tP)}</td><td class="num ${tN < 0 ? 'neg' : ''}">${signedYen(tN)}</td></tr></tfoot></table></div>` +
-      `<div class="cash-note">差引＝（前入金＋残り入金）−仕入。仕入が未入力の案件は、仕入0円として差引を出しています。</div></details>`;
+      `<div class="cash-table-wrap"><table class="cash-table"><thead><tr><th>案件</th><th>契約金額</th><th>前入金</th><th>残り入金</th><th>機器仕入</th><th>部品・部材</th><th>差引</th></tr></thead><tbody>${rows}</tbody>` +
+      `<tfoot><tr><td>合計</td><td class="num">${fmtYen(tS)}</td><td class="num">${fmtYen(tA)}</td><td class="num">${fmtYen(tR)}</td><td class="num">${fmtYen(tP)}</td><td class="num">${fmtYen(tQ)}</td><td class="num ${tN < 0 ? 'neg' : ''}">${signedYen(tN)}</td></tr></tfoot></table></div>` +
+      `<div class="cash-note">差引＝（前入金＋残り入金）−（機器仕入＋部品・部材）。未入力の仕入は0円として差引を出しています。</div></details>`;
   }
 
   document.getElementById('cashBody').innerHTML = html;
@@ -1734,7 +1765,7 @@ function searchBlob(d){
     d.customerName, d.siteName, d.projectName, d.summary, d.source, d.assignee, d.rank,
     d.currentStatus, d.pendingIssue, d.lostReason, d.winFactor, d.supplier, d.paymentTerms, d.nextActionNote,
     st, st === '見積中' ? '見積提出済' : '', isExcluded(d) ? '集計外' : '', d.dupBranches ? '重複' : '', d.expectedOrderMonth, d.receiptMonth, d.billingMonth,
-    d.quoteAmount, d.confirmedAmount, d.purchaseAmount
+    d.quoteAmount, d.confirmedAmount, d.purchaseAmount, d.partsSupplier, d.partsAmount
   ];
   return normSearch(parts.filter(v => v !== '' && v != null).join(' '));
 }
@@ -2464,7 +2495,7 @@ document.getElementById('toggleLost').addEventListener('click', () => {
 const overlay = document.getElementById('overlay');
 const BRANCHES = ['営業部','営業部（ビルメン）','１課','２課','３課','函館','旭川'];
 const coreFields = ['dealNo','assignee','customerName','source','siteName','projectName','summary','occurredDate','rank','quoteAmount','confirmedAmount','expectedOrderMonth','profitRate','currentStatus','pendingIssue'];
-const editFields = ['status','quoteDate','lostReason','winFactor','constructionStart','constructionEnd','supplier','purchaseDate','purchaseAmount','billingMonth','paymentTerms','receiptMonth','advanceAmount','advanceMonth','nextActionDate','nextActionNote','excluded'];
+const editFields = ['status','quoteDate','lostReason','winFactor','constructionStart','constructionEnd','supplier','purchaseDate','purchaseAmount','billingMonth','paymentTerms','receiptMonth','advanceAmount','advanceMonth','nextActionDate','nextActionNote','excluded','partsSupplier','partsDate','partsAmount','partsBillingMonth'];
 let currentDeal = null;
 let isNewMode = false;
 let modalInitial = {};
@@ -2516,9 +2547,9 @@ function openModal(deal){
 
   editFields.forEach(f => {
     const el = document.getElementById('f-' + f);
-    if(f === 'quoteDate' || f === 'nextActionDate' || f === 'constructionStart' || f === 'constructionEnd' || f === 'purchaseDate'){
+    if(f === 'quoteDate' || f === 'nextActionDate' || f === 'constructionStart' || f === 'constructionEnd' || f === 'purchaseDate' || f === 'partsDate'){
       el.value = toDateInputVal(deal[f]);
-    } else if(f === 'billingMonth' || f === 'receiptMonth' || f === 'advanceMonth'){
+    } else if(f === 'billingMonth' || f === 'receiptMonth' || f === 'advanceMonth' || f === 'partsBillingMonth'){
       el.value = normMonth(deal[f]);
     } else {
       el.value = deal[f] || '';
@@ -2558,7 +2589,7 @@ function conflictMessage(core, extra){
 document.getElementById('btnNew').addEventListener('click', openNewModal);
 document.getElementById('f-purchaseDate').addEventListener('input', updatePayMonthHint);
 document.getElementById('f-billingMonth').addEventListener('input', updatePayMonthHint);
-['c-confirmedAmount','c-quoteAmount','f-purchaseAmount','f-advanceAmount','f-advanceMonth','f-receiptMonth'].forEach(id => { const el = document.getElementById(id); if(el) el.addEventListener('input', updatePayMonthHint); });
+['c-confirmedAmount','c-quoteAmount','f-purchaseAmount','f-advanceAmount','f-advanceMonth','f-receiptMonth','f-partsAmount','f-partsDate','f-partsBillingMonth'].forEach(id => { const el = document.getElementById(id); if(el) el.addEventListener('input', updatePayMonthHint); });
 
 document.getElementById('btnToggleFilters').addEventListener('click', () => {
   document.getElementById('filterPanel').classList.toggle('open');
@@ -2743,7 +2774,11 @@ function normName(s){
 function refreshSuggestions(){
   SUGGEST_FIELDS.forEach(f => {
     const cnt = {};
-    deals.forEach(d => { const v = String(d[f.key] || '').trim(); if(v) cnt[v] = (cnt[v] || 0) + 1; });
+    deals.forEach(d => {
+      const vs = [d[f.key]];
+      if(f.key === 'supplier') vs.push(d.partsSupplier);   // 部品・部材の仕入先も候補に含める
+      vs.forEach(x => { const v = String(x || '').trim(); if(v) cnt[v] = (cnt[v] || 0) + 1; });
+    });
     const names = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a] || a.localeCompare(b, 'ja'));
     suggestValues[f.key] = names;
     const dl = document.getElementById(f.dl);

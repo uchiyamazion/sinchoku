@@ -42,6 +42,7 @@ const EXTRA_HEADERS = [
   'supplier', 'purchaseDate', 'purchaseAmount', 'billingMonth',
   'paymentTerms', 'receiptMonth', 'advanceAmount', 'advanceMonth',
   'nextActionDate', 'nextActionNote', 'excluded',
+  'partsSupplier', 'partsDate', 'partsAmount', 'partsBillingMonth',
   'orderedAt',
   'updatedAt'
 ];
@@ -276,6 +277,10 @@ function dealList() {
       nextActionDate: extra.nextActionDate || '',
       nextActionNote: extra.nextActionNote || '',
       excluded: extra.excluded ? '1' : '',
+      partsSupplier: extra.partsSupplier || '',
+      partsDate: extra.partsDate || '',
+      partsAmount: extra.partsAmount || '',
+      partsBillingMonth: normMonthStr_(extra.partsBillingMonth),
       updatedAt: extra.updatedAt || '',
       elapsedDays: calcElapsedDays_(baseDate, status)
     });
@@ -481,12 +486,15 @@ function valuesRename(data) {
     if (field === 'supplier') {
       const sh = ensureExtraSheet_();
       const vals = sh.getDataRange().getValues();
-      const col = vals[0].indexOf('supplier');
-      if (col < 0) return makeErr('仕入先の列が見つかりません');
-      for (let i = 1; i < vals.length; i++) {
-        const v = String(vals[i][col]);
-        if (fromSet[v] && v !== to) { sh.getRange(i + 1, col + 1).setValue(to); changed++; }
-      }
+      // 機器の仕入先と、部品・部材の仕入先の両方を統一する
+      const cols = ['supplier', 'partsSupplier'].map(h => vals[0].indexOf(h)).filter(c => c >= 0);
+      if (!cols.length) return makeErr('仕入先の列が見つかりません');
+      cols.forEach(col => {
+        for (let i = 1; i < vals.length; i++) {
+          const v = String(vals[i][col]);
+          if (fromSet[v] && v !== to) { sh.getRange(i + 1, col + 1).setValue(to); changed++; }
+        }
+      });
     } else if (RENAMEABLE_FIELDS.indexOf(field) >= 0) {
       SOURCE_SHEETS.forEach(name => {
         const sh = sheet(name);
