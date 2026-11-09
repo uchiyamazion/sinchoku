@@ -380,6 +380,9 @@
   }
   .field input:focus, .field select:focus, .field textarea:focus{ outline:none; border-color:var(--navy); }
   .field textarea{ resize:vertical; min-height:44px; }
+  .btn-danger{ background:#fff; color:var(--red); border:1px solid var(--red); }
+  .btn-danger:hover{ background:var(--red-soft); }
+  .btn-danger:disabled{ opacity:.5; cursor:default; }
   .modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:20px; }
   .modal-conflict{ margin-top:14px; background:var(--red-soft); border:1px solid var(--red); color:var(--red); border-radius:6px; padding:9px 11px; font-size:12px; font-weight:600; }
 
@@ -799,6 +802,7 @@
     <div id="modalConflict" class="modal-conflict" style="display:none;"></div>
 
     <div class="modal-actions">
+      <button class="btn btn-danger" id="btnDelete" style="margin-right:auto; display:none;">🗑 削除</button>
       <button class="btn btn-ghost" id="btnCancel">閉じる</button>
       <button class="btn btn-primary" id="btnSave">保存</button>
     </div>
@@ -2571,6 +2575,7 @@ function openNewModal(){
   branchSel.innerHTML = BRANCHES.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
   document.getElementById('newBranchField').style.display = 'block';
   document.getElementById('copyFromBox').style.display = 'block';
+  document.getElementById('btnDelete').style.display = 'none';
   document.getElementById('copyQuery').value = '';
   document.getElementById('copyResults').innerHTML = '';
   document.getElementById('copyNote').textContent = '';
@@ -2588,6 +2593,7 @@ function openModal(deal){
   isNewMode = false;
   document.getElementById('newBranchField').style.display = 'none';
   document.getElementById('copyFromBox').style.display = 'none';
+  document.getElementById('btnDelete').style.display = '';
   document.getElementById('dealNoLabel').textContent = '案件No';
   document.getElementById('m-branch').textContent = deal.branch + (deal.no !== undefined && deal.no !== '' ? '　No.' + deal.no : '') + (deal.rowNum ? '（' + deal.rowNum + '行目）' : '');
   document.getElementById('modalTitle').textContent = deal.projectName || deal.customerName || '案件詳細';
@@ -2735,6 +2741,34 @@ document.getElementById('btnCancel').addEventListener('click', () => {
   if(modalDirty() && !confirm('入力した内容は保存されません。閉じてもよろしいですか？')) return;
   closeModal();
 });
+// ==== 案件の削除 ====
+// シートの行は消さず、案件No・基本情報の入力欄を空にする（Noの行は残り、新規作成のときに再利用される）。
+// 消した内容は、スプレッドシートの「削除履歴」シートに残る。
+document.getElementById('btnDelete').addEventListener('click', async () => {
+  const d = currentDeal;
+  if(!d || isNewMode) return;
+  const name = (d.siteName || d.projectName || d.customerName || '名称なし') + '（' + d.branch + (d.no !== undefined && d.no !== '' ? ' No.' + d.no : '') + '）';
+  if(!confirm('「' + name + '」を削除します。\n\n・シート「' + d.branch + '」の該当行の内容が消えます（Noの行は残ります）\n・ステータスや入金などの進捗情報も消えます\n・消した内容は「削除履歴」シートに控えが残ります\n\n本当に削除してよろしいですか？')) return;
+  const btn = document.getElementById('btnDelete');
+  btn.disabled = true;
+  const baseCore = {};
+  ['dealNo','customerName','siteName','projectName','quoteAmount','confirmedAmount'].forEach(f => { baseCore[f] = d[f]; });
+  try{
+    let res = await gasPost('deal_delete', { id: d.id, branch: d.branch, rowNum: d.rowNum, origDealNo: d.dealNo, baseCore, force: false });
+    if(res.status === 'conflict'){
+      if(!confirm('他の人がこの案件を先に更新しています。\nそれでも削除しますか？')){ btn.disabled = false; return; }
+      res = await gasPost('deal_delete', { id: d.id, branch: d.branch, rowNum: d.rowNum, origDealNo: d.dealNo, baseCore, force: true });
+    }
+    if(res.status !== 'success'){ alert('削除できませんでした：' + res.data); btn.disabled = false; return; }
+    closeModal();
+    showToast('🗑 削除しました（' + name + '）。控えは「削除履歴」シートにあります');
+    await loadDeals({ force: true });
+  }catch(err){
+    alert('削除できませんでした：' + (err && err.message || err));
+  }
+  btn.disabled = false;
+});
+
 // ==== 新規案件の下書き自動保存（再読み込み・ブラウザの不調などで画面が消えても、入力を残す） ====
 // 閉じるボタンや保存で正常に閉じたときは破棄する。予期せず消えたときだけ、次に「新規」を開いたときに復元を確認する。
 const DRAFT_KEY = 'sinchoku_new_draft';

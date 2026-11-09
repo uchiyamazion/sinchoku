@@ -108,6 +108,7 @@ function doPost(e) {
       case 'deal_extra_upsert': result = dealExtraUpsert(payload.data || payload); break;
       case 'deal_core_update':  result = dealCoreUpdate(payload.data || payload); break;
       case 'deal_core_create':  result = dealCoreCreate(payload.data || payload); break;
+      case 'deal_delete':       result = dealDelete(payload.data || payload); break;
       case 'values_rename':     result = valuesRename(payload.data || payload); break;
       case 'deal_conflict_check': return dealConflictCheck(payload.data || payload);
       case 'target_save':       return targetSave(payload.data || payload);
@@ -631,6 +632,84 @@ function dealCoreUpdate(data) {
     return makeRes({ id: data.branch + '::' + newDealNo, rowNum: rowNum, dealNo: newDealNo });
   } catch (err) {
     return makeErr('dealCoreUpdate error: ' + err.toString());
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ════════════════════════════════════════════════
+// 案件の削除
+// 元シートの行は削除せず（行がズレるため）、案件No・基本情報の入力欄だけを空にする。
+// B列のNoと、数式が入っているセルはそのまま残す＝新規作成時に「空きの定型行」として再利用される。
+// 追加情報シートの行は削除する。消した内容は「削除履歴」シートに控える。
+// ════════════════════════════════════════════════
+
+const DELETE_LOG_SHEET_NAME = '削除履歴';
+const DELETE_LOG_HEADERS = ['deletedAt', 'branch', 'rowNum', 'no', 'dealNo', 'customerName', 'siteName', 'projectName', 'coreJson', 'extraJson'];
+
+function dealDelete(data) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    if (!data.branch || SOURCE_SHEETS.indexOf(data.branch) < 0 || !data.rowNum) {
+      return makeErr('branch / rowNum が正しく指定されていません');
+    }
+    const sh = sheet(data.branch);
+    if (!sh) return makeErr('シートが見つかりません: ' + data.branch);
+
+    // 行ズレの補正（案件Noで突合）。案件Noが無い案件は、行番号をそのまま使う
+    const rowNum = resolveRowNum_(sh, data.rowNum, data.origDealNo);
+    if (rowNum < DATA_START_ROW) {
+      return makeErr('対象の行が見つかりませんでした（案件No: ' + data.origDealNo + '）。ページを再読み込みしてから、もう一度お試しください。');
+    }
+
+    // 競合検知：読み込み後に、他の人がこの行を書き換えていないか
+    if (!data.force && data.baseCore) {
+      const keys = Object.keys(data.baseCore).filter(f => COL[f]);
+      const cc = coreConflicts_(sh, rowNum, keys, data.baseCore);
+      if (cc.length) return makeRes({ core: cc }, 'conflict');
+    }
+
+    // 控えを残す（行の内容と、追加情報シートの行）
+    const rowVals = sh.getRange(rowNum, 1, 1, 19).getValues()[0];
+    const core = {};
+    Object.keys(COL).forEach(f => { core[f] = normVal_(rowVals[COL[f] - 1]); });
+    if (!core.dealNo && !core.customerName && !core.siteName && !core.projectName) {
+      return makeErr('この行はすでに空です');
+    }
+
+    const exSh = ensureExtraSheet_();
+    const exVals = exSh.getDataRange().getValues();
+    const exHeaders = exVals[0];
+    const idCol = exHeaders.indexOf('id');
+    const extraId = data.id || (data.branch + '::' + (core.dealNo ? core.dealNo : 'r' + rowNum));
+    let exRowIdx = -1, extra = null;
+    for (let i = 1; i < exVals.length; i++) {
+      if (exVals[i][idCol] == extraId) {
+        exRowIdx = i + 1;
+        extra = {};
+        exHeaders.forEach((h, c) => { extra[h] = normVal_(exVals[i][c]); });
+        break;
+      }
+    }
+
+    let log = sheet(DELETE_LOG_SHEET_NAME);
+    if (!log) { log = SS().insertSheet(DELETE_LOG_SHEET_NAME); log.appendRow(DELETE_LOG_HEADERS); }
+    log.appendRow([new Date(), data.branch, rowNum, core.no, core.dealNo, core.customerName, core.siteName, core.projectName,
+      JSON.stringify(core), extra ? JSON.stringify(extra) : '']);
+
+    // 元シート：案件No＋基本情報の入力欄を空にする（数式のセルは残す）
+    ['dealNo'].concat(EDITABLE_CORE_FIELDS).forEach(f => {
+      const cell = sh.getRange(rowNum, COL[f]);
+      if (!cell.getFormula()) cell.clearContent();
+    });
+
+    // 追加情報シート：該当の行を削除
+    if (exRowIdx > 0) exSh.deleteRow(exRowIdx);
+
+    return makeRes({ id: extraId, rowNum: rowNum });
+  } catch (err) {
+    return makeErr('dealDelete error: ' + err.toString());
   } finally {
     lock.releaseLock();
   }
