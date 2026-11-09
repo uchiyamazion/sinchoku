@@ -43,6 +43,7 @@ const EXTRA_HEADERS = [
   'paymentTerms', 'receiptMonth', 'advanceAmount', 'advanceMonth',
   'nextActionDate', 'nextActionNote', 'excluded',
   'partsSupplier', 'partsDate', 'partsAmount', 'partsBillingMonth',
+  'outsourceSupplier', 'outsourceDate', 'outsourceAmount', 'outsourceBillingMonth',
   'orderedAt',
   'updatedAt'
 ];
@@ -281,6 +282,10 @@ function dealList() {
       partsDate: extra.partsDate || '',
       partsAmount: extra.partsAmount || '',
       partsBillingMonth: normMonthStr_(extra.partsBillingMonth),
+      outsourceSupplier: extra.outsourceSupplier || '',
+      outsourceDate: extra.outsourceDate || '',
+      outsourceAmount: extra.outsourceAmount || '',
+      outsourceBillingMonth: normMonthStr_(extra.outsourceBillingMonth),
       updatedAt: extra.updatedAt || '',
       elapsedDays: calcElapsedDays_(baseDate, status)
     });
@@ -486,8 +491,8 @@ function valuesRename(data) {
     if (field === 'supplier') {
       const sh = ensureExtraSheet_();
       const vals = sh.getDataRange().getValues();
-      // 機器の仕入先と、部品・部材の仕入先の両方を統一する
-      const cols = ['supplier', 'partsSupplier'].map(h => vals[0].indexOf(h)).filter(c => c >= 0);
+      // 機器の仕入先・部品・部材の仕入先・外注先をまとめて統一する
+      const cols = ['supplier', 'partsSupplier', 'outsourceSupplier'].map(h => vals[0].indexOf(h)).filter(c => c >= 0);
       if (!cols.length) return makeErr('仕入先の列が見つかりません');
       cols.forEach(col => {
         for (let i = 1; i < vals.length; i++) {
