@@ -2580,6 +2580,7 @@ function openNewModal(){
   document.getElementById('modalConflict').style.display = 'none';
   overlay.classList.add('open');
   modalBaseline = modalAllValues();
+  restoreDraftIfAny();
 }
 
 function openModal(deal){
@@ -2631,7 +2632,7 @@ function openModal(deal){
   overlay.classList.add('open');
   modalBaseline = modalAllValues();
 }
-function closeModal(){ overlay.classList.remove('open'); currentDeal = null; isNewMode = false; }
+function closeModal(){ overlay.classList.remove('open'); currentDeal = null; isNewMode = false; clearDraft(); }
 
 const FIELD_LABELS = { dealNo:'案件No', assignee:'担当者', customerName:'顧客名', source:'源泉', siteName:'現場名', projectName:'案件名', summary:'概要', occurredDate:'発生日', rank:'ランク', quoteAmount:'見積金額', confirmedAmount:'確定金額', expectedOrderMonth:'受注予定月', profitRate:'粗利率', currentStatus:'現在状況', pendingIssue:'懸案事項' };
 function conflictMessage(core, extra){
@@ -2730,7 +2731,49 @@ document.getElementById('copyResults').addEventListener('click', e => {
   if(b) copyFromDeal(b.dataset.id);
 });
 
-document.getElementById('btnCancel').addEventListener('click', closeModal);
+document.getElementById('btnCancel').addEventListener('click', () => {
+  if(modalDirty() && !confirm('入力した内容は保存されません。閉じてもよろしいですか？')) return;
+  closeModal();
+});
+// ==== 新規案件の下書き自動保存（再読み込み・ブラウザの不調などで画面が消えても、入力を残す） ====
+// 閉じるボタンや保存で正常に閉じたときは破棄する。予期せず消えたときだけ、次に「新規」を開いたときに復元を確認する。
+const DRAFT_KEY = 'sinchoku_new_draft';
+let draftTimer = null;
+function draftValues(){
+  const o = {};
+  overlay.querySelectorAll('input, select, textarea').forEach(el => {
+    if(!el.id || el.dataset.nodirty || el.type === 'hidden' || el.type === 'file') return;
+    o[el.id] = el.value;
+  });
+  return o;
+}
+function saveDraftSoon(){
+  if(!isNewMode) return;
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => {
+    if(!isNewMode || !overlay.classList.contains('open') || !modalDirty()) return;
+    lsSet(DRAFT_KEY, JSON.stringify({ t: Date.now(), v: draftValues() }));
+  }, 400);
+}
+function clearDraft(){ clearTimeout(draftTimer); try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} }
+function restoreDraftIfAny(){
+  const raw = lsGet(DRAFT_KEY);
+  if(!raw) return;
+  try{
+    const dr = JSON.parse(raw);
+    if(dr && dr.v && Date.now() - dr.t < 7 * 24 * 3600 * 1000 &&
+       confirm('保存せずに消えた（途中の）新規案件の入力が残っています。続きから入力しますか？\n［キャンセル］を押すと破棄します。')){
+      Object.keys(dr.v).forEach(id => { const el = document.getElementById(id); if(el && overlay.contains(el)) el.value = dr.v[id]; });
+      updatePayMonthHint();
+    } else clearDraft();
+  }catch(e){ clearDraft(); }
+}
+overlay.addEventListener('input', saveDraftSoon);
+overlay.addEventListener('change', saveDraftSoon);
+// 入力中にページを閉じたり再読み込みしようとしたら、ブラウザの確認を出す
+window.addEventListener('beforeunload', e => {
+  if(overlay.classList.contains('open') && modalDirty()){ e.preventDefault(); e.returnValue = ''; }
+});
 // 入力画面の外（暗い背景）をクリックしても閉じる。ただし次のときは閉じない：
 //  ・入力した内容がまだ保存されていない（別のウインドウから戻るためのクリックなどで、入力が消えないように）
 //  ・ウインドウに戻った直後のクリック
