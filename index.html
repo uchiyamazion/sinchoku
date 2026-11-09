@@ -255,6 +255,16 @@
   .cash-detail{ margin-top:14px; }
   .cash-detail summary{ cursor:pointer; font-weight:700; font-size:13px; padding:6px 0; }
   .cash-detail .mo{ display:block; font-size:10px; color:var(--ink-soft); font-family:'IBM Plex Sans JP',sans-serif; }
+  .copy-box{ margin-bottom:14px; padding:10px 12px; background:var(--grey-soft); border-radius:8px; }
+  .copy-box label.t{ display:block; font-size:12px; font-weight:700; margin-bottom:6px; }
+  .copy-box input[type=text]{ width:100%; }
+  .copy-results{ margin-top:6px; display:flex; flex-direction:column; gap:4px; }
+  .copy-results button{ text-align:left; padding:7px 10px; border:1px solid var(--line); background:#fff; border-radius:6px; cursor:pointer; font-size:12.5px; line-height:1.5; }
+  .copy-results button:hover{ border-color:var(--navy); }
+  .copy-results .meta{ color:var(--ink-soft); font-size:11px; }
+  .copy-note{ margin-top:6px; font-size:12px; color:var(--ink-soft); line-height:1.6; }
+  .copy-opt{ display:flex; align-items:flex-start; gap:6px; margin-top:6px; font-size:12px; color:var(--ink-soft); }
+  .copy-opt input{ margin-top:2px; }
   .pdf-modal{ max-width:760px; }
   .pdf-card{ border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin:12px 0; background:#fff; }
   .pdf-card.err{ border-color:var(--red); }
@@ -704,6 +714,14 @@
     <span class="branch-tag" id="m-branch"></span>
     <h2 id="modalTitle">案件詳細</h2>
     <input type="hidden" id="f-id">
+
+    <div class="copy-box" id="copyFromBox" style="display:none;">
+      <label class="t">📋 既存の案件から引用（スプレッドシートのNo または 現場名で検索）</label>
+      <input type="text" id="copyQuery" data-nodirty="1" placeholder="例：No.26　／　キャポ大谷地　／　案件No" autocomplete="off">
+      <label class="copy-opt"><input type="checkbox" id="copyMoney" data-nodirty="1"> 見積金額・仕入・部品部材・外注費の金額と取引先もコピーする</label>
+      <div class="copy-results" id="copyResults"></div>
+      <div class="copy-note" id="copyNote"></div>
+    </div>
 
     <div class="field-grid" id="newBranchField" style="display:none; margin-bottom:14px;">
       <div class="field full">
@@ -2552,6 +2570,10 @@ function openNewModal(){
   const branchSel = document.getElementById('c-branch');
   branchSel.innerHTML = BRANCHES.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
   document.getElementById('newBranchField').style.display = 'block';
+  document.getElementById('copyFromBox').style.display = 'block';
+  document.getElementById('copyQuery').value = '';
+  document.getElementById('copyResults').innerHTML = '';
+  document.getElementById('copyNote').textContent = '';
   document.getElementById('dealNoLabel').textContent = '案件No（空欄なら自動採番）';
   document.getElementById('prevStatusNote').style.display = 'none';
 
@@ -2564,6 +2586,7 @@ function openModal(deal){
   currentDeal = deal;
   isNewMode = false;
   document.getElementById('newBranchField').style.display = 'none';
+  document.getElementById('copyFromBox').style.display = 'none';
   document.getElementById('dealNoLabel').textContent = '案件No';
   document.getElementById('m-branch').textContent = deal.branch + (deal.no !== undefined && deal.no !== '' ? '　No.' + deal.no : '') + (deal.rowNum ? '（' + deal.rowNum + '行目）' : '');
   document.getElementById('modalTitle').textContent = deal.projectName || deal.customerName || '案件詳細';
@@ -2658,6 +2681,55 @@ document.getElementById('btnReset').addEventListener('click', () => {
 
   render();
 });
+// ==== 既存の案件から引用して、新規案件を作る ====
+// スプレッドシートのNo（シートのNo／案件No）か、現場名・顧客名・工事名で探し、選んだ案件の基本情報を新規入力欄にコピーする。
+// 案件No・日付・ステータス・入金や次回アクションなどの進捗は引用しない。
+function copySearch(){
+  const q = document.getElementById('copyQuery').value.trim();
+  const box = document.getElementById('copyResults');
+  if(!q){ box.innerHTML = ''; return; }
+  const qn = pdfNorm(q);
+  const noQ = q.replace(/^no\.?\s*/i, '').trim();
+  const score = d => {
+    const no = String(d.no === undefined || d.no === null ? '' : d.no).trim();
+    const dn = String(d.dealNo || '').trim();
+    if(noQ && (no === noQ || dn === noQ)) return 4;
+    if(noQ.length >= 3 && dn.indexOf(noQ) >= 0) return 3;
+    const names = [d.siteName, d.customerName, d.projectName].map(pdfNorm);
+    if(qn && names[0] && names[0].indexOf(qn) === 0) return 3;
+    if(qn && names.some(n => n.indexOf(qn) >= 0)) return 2;
+    return 0;
+  };
+  const hits = deals.map(d => ({ d, sc: score(d) })).filter(x => x.sc).sort((a, b) => b.sc - a.sc).slice(0, 10);
+  box.innerHTML = hits.length ? hits.map(({ d }) => {
+    const no = d.no !== undefined && d.no !== '' ? 'No.' + d.no : (d.rowNum ? d.rowNum + '行目' : '');
+    return `<button type="button" data-id="${escapeHtml(d.id)}"><b>${escapeHtml(d.siteName || d.projectName || '(名称なし)')}</b>` +
+      `<span class="meta">　${escapeHtml(d.customerName || '')}${d.projectName && d.siteName ? '／' + escapeHtml(d.projectName) : ''}</span>` +
+      `<br><span class="meta">${escapeHtml(d.branch)} ${escapeHtml(no)}${d.dealNo ? '・案件No ' + escapeHtml(String(d.dealNo)) : ''}・${escapeHtml(effStatus(d) || '未設定')}</span></button>`;
+  }).join('') : '<div class="copy-note">該当する案件が見つかりません</div>';
+}
+function copyFromDeal(id){
+  const d = deals.find(x => x.id === id);
+  if(!d) return;
+  const set = (el, v) => { const e = document.getElementById(el); if(e) e.value = (v === undefined || v === null) ? '' : v; };
+  ['assignee','customerName','source','siteName','projectName','summary','rank'].forEach(f => set('c-' + f, d[f]));
+  if(BRANCHES.indexOf(d.branch) >= 0) set('c-branch', d.branch);
+  const money = document.getElementById('copyMoney').checked;
+  if(money){
+    set('c-quoteAmount', d.quoteAmount);
+    ['supplier','purchaseAmount','partsSupplier','partsAmount','outsourceSupplier','outsourceAmount'].forEach(f => set('f-' + f, d[f]));
+  }
+  updatePayMonthHint();
+  document.getElementById('copyResults').innerHTML = '';
+  document.getElementById('copyNote').textContent = '✅ ' + dealLabel(d).slice(1, -1) + '（' + d.branch + '）の内容を引用しました。' +
+    (money ? '' : '金額は引用していません。') + '案件No・日付・ステータス・入金などは引用していません。';
+}
+document.getElementById('copyQuery').addEventListener('input', copySearch);
+document.getElementById('copyResults').addEventListener('click', e => {
+  const b = e.target.closest('button[data-id]');
+  if(b) copyFromDeal(b.dataset.id);
+});
+
 document.getElementById('btnCancel').addEventListener('click', closeModal);
 // 入力画面の外（暗い背景）をクリックしても閉じる。ただし次のときは閉じない：
 //  ・入力した内容がまだ保存されていない（別のウインドウから戻るためのクリックなどで、入力が消えないように）
@@ -2665,7 +2737,7 @@ document.getElementById('btnCancel').addEventListener('click', closeModal);
 //  ・文字を選択しようとして、マウスを画面の外へドラッグして離した
 let modalBaseline = '';
 function modalAllValues(){
-  return Array.from(overlay.querySelectorAll('input, select, textarea')).map(el => el.id + '=' + el.value).join('|');
+  return Array.from(overlay.querySelectorAll('input, select, textarea')).filter(el => !el.dataset.nodirty).map(el => el.id + '=' + el.value).join('|');
 }
 function modalDirty(){ return modalAllValues() !== modalBaseline; }
 let lastWinFocusAt = 0, overlayDownOnBackdrop = false;
