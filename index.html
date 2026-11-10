@@ -649,7 +649,11 @@
       入金は案件ごとに入力した月で集計します（受注・工事中・完了の案件が対象）：<b>前入金は「前入金月」、残り（金額−前入金）は「入金予定月」</b>に計上します。現在の絞り込み条件が反映されます。
     </div>
     <div id="cashBody"></div>
-    <div class="modal-actions"><button class="btn btn-primary" id="btnCashClose">閉じる</button></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="btnCashCsvMonthly" title="月別の支払い予定・入金予定をCSVで保存します">📥 月別CSV</button>
+      <button class="btn btn-ghost" id="btnCashCsvDetail" title="案件ごとの入出金の内訳をCSVで保存します">📥 案件別CSV</button>
+      <button class="btn btn-primary" id="btnCashClose">閉じる</button>
+    </div>
   </div>
 </div>
 
@@ -998,6 +1002,53 @@ function getPanelDeals(){
 function ymLabel(ym){ const p = ym.split('-'); return `${p[0]}年${Number(p[1])}月`; }
 function cashCell(sum, n){ return n ? `${fmtYen(sum)}<span class="cash-count">${n}件</span>` : '－'; }
 
+// ==== 入出金のCSV出力 ====
+let cashExport = null;
+function csvCell(v){
+  if(v === null || v === undefined) return '';
+  if(typeof v === 'number') return String(v);
+  let s = String(v);
+  if(/^[=+@]/.test(s) || /^-[^\d]/.test(s)) s = "'" + s;      // Excelで数式として解釈されないように
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function downloadCsv(filename, rows){
+  const text = '\uFEFF' + rows.map(r => r.map(csvCell).join(',')).join('\r\n') + '\r\n';   // BOM付きUTF-8（Excelで文字化けしない）
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+function csvStamp(){ return todayStr().replace(/-/g, ''); }
+function exportCashDetailCsv(){
+  if(!cashExport || !cashExport.detail.length){ alert('出力できる案件がありません'); return; }
+  const rows = [['拠点', 'No', '案件No', '現場名', '顧客名', '工事名', '担当者', 'ステータス', '契約金額', '金額の区分',
+    '前入金額', '前入金月', '残り入金', '入金予定月', '機器仕入', '機器の支払月', '部品・部材', '部品・部材の支払月', '外注費', '外注費の支払月', '出金計', '差引（入金計−出金計）']];
+  cashExport.detail.forEach(({ d, cf }) => {
+    rows.push([d.branch, d.no === undefined ? '' : d.no, d.dealNo || '', d.siteName || '', d.customerName || '', d.projectName || '', d.assignee || '', effStatus(d) || '',
+      cf.sales, cf.estimated ? '見積' : '確定',
+      cf.adv, cf.advMonth, cf.remain, cf.recvMonth,
+      cf.hasPur ? cf.pur : '', cf.payMonth, cf.hasParts ? cf.parts : '', cf.partsMonth, cf.hasOutsrc ? cf.outsrc : '', cf.outsrcMonth,
+      cf.pur + cf.parts + cf.outsrc, cf.net]);
+  });
+  downloadCsv('入出金_案件別_' + csvStamp() + '.csv', rows);
+}
+function exportCashMonthlyCsv(){
+  if(!cashExport){ alert('出力できるデータがありません'); return; }
+  const rows = [['月', '仕入・外注の支払い予定', '支払の件数', '入金予定', '入金の件数', '差引（入金−支払）']];
+  Object.keys(cashExport.months).sort().forEach(ym => {
+    const m = cashExport.months[ym];
+    rows.push([ym, m.pay, m.payN, m.recv, m.recvN, m.recv - m.pay]);
+  });
+  const x = cashExport;
+  if(x.unschedN || x.noAdvMN || x.noRecvMN){
+    rows.push(['（月が未入力）', x.unschedPay, x.unschedN, x.noAdvM + x.noRecvM, x.noAdvMN + x.noRecvMN, (x.noAdvM + x.noRecvM) - x.unschedPay]);
+  }
+  downloadCsv('入出金_月別_' + csvStamp() + '.csv', rows);
+}
+document.getElementById('btnCashCsvDetail').addEventListener('click', exportCashDetailCsv);
+document.getElementById('btnCashCsvMonthly').addEventListener('click', exportCashMonthlyCsv);
+
 function openCashPanel(){
   const list = getPanelDeals();
   const months = {};
@@ -1110,6 +1161,7 @@ function openCashPanel(){
       `<div class="cash-note">差引＝（前入金＋残り入金）−（機器仕入＋部品・部材＋外注費）。未入力の仕入は0円として差引を出しています。</div></details>`;
   }
 
+  cashExport = { months, detail, unschedPay, unschedN, noAdvM, noAdvMN, noRecvM, noRecvMN };
   document.getElementById('cashBody').innerHTML = html;
   document.getElementById('cashOverlay').classList.add('open');
 }
