@@ -365,6 +365,8 @@
   body.no-emph .sheet-no{ font-size:15px; font-weight:700; color:#fff; background:var(--navy); padding:1px 9px; letter-spacing:.02em; }
   #btnNoEmph.on{ background:var(--navy); color:#fff; border-color:var(--navy); }
   #noJump{ width:84px; }
+  #boardFy{ width:132px; }
+  #boardFy.alt{ border-color:var(--navy); font-weight:700; background:#EEF2F7; }
   #noJumpBranch{ width:104px; }
   .modal .branch-tag{ display:inline-block; font-size:10.5px; font-weight:600; color:var(--navy); background:var(--navy-soft); padding:1px 7px; border-radius:8px; margin-bottom:8px; }
 
@@ -483,6 +485,7 @@
     <div class="sub"><span id="lastUpdated">未取得</span></div>
   </div>
   <div class="header-right">
+    <select id="boardFy" title="表示する年度（4月〜翌年3月）。進行中の案件は、年度をまたいで繰り越して表示します"><option value="cur">今年度</option></select>
     <button class="btn btn-ghost" id="btnNoEmph" title="カードのNoを大きく目立たせます（発表のときなど）">No強調</button>
     <select id="noJumpBranch" title="拠点を選ぶと、その拠点のシートのNoだけを探します"><option value="">全拠点</option></select>
     <input type="search" id="noJump" inputmode="numeric" placeholder="No." title="シートのNoで探す（全シートから該当のNoを表示）" autocomplete="off">
@@ -1247,6 +1250,7 @@ function fyOptions(){
   const set = new Set([fyOf(new Date())]);
   deals.forEach(d => { const bd = dealBaseDate(d); if(bd) set.add(fyOf(bd)); });
   targets.forEach(t => set.add(t.fy));
+  set.add(fyOf(new Date()) + 1);   // 来年度の目標を、事前に設定できるように
   return [...set].filter(y => y >= ANA_MIN_FY).sort((a, b) => b - a);
 }
 function renderTargetSection(){
@@ -1270,6 +1274,7 @@ function renderTargetSection(){
       `</tbody></table></div>
       <div style="margin-top:8px; display:flex; gap:8px;">
         <button class="btn btn-primary" id="btnTgSave" onclick="saveTargets()">保存</button>
+        <button class="btn btn-ghost" onclick="copyPrevTargets()">${anaFy - 1}年度の目標をコピー</button>
         <button class="btn btn-ghost" onclick="anaEditTarget=false; renderAnalysis();">キャンセル</button>
       </div>`;
     return;
@@ -1404,6 +1409,15 @@ function renderForecastSection(){
       <button class="btn btn-ghost btn-mini" onclick="resetRankProb()">初期値に戻す</button>
     </div>
     <div class="cash-note" style="margin-top:6px">失注に移すとランクが「E」に変わるため、過去の実績からランク別の確率は出せません。自社の感覚に合わせて設定してください（このブラウザに保存されます）。参考：この期間の受注率は、件数で${pct(a.won, a.won + a.lost)}、金額で${pct(a.wonAmt, a.wonAmt + a.lostAmt)}です。</div>`;
+}
+function copyPrevTargets(){
+  const man = v => (v === null || v === undefined ? '' : Math.round(v / 1000));
+  branchList().forEach((b, i) => {
+    const up = document.getElementById('tg-' + i + '-up'), dn = document.getElementById('tg-' + i + '-down');
+    if(up) up.value = man(targetOf(b, anaFy - 1, '上期'));
+    if(dn) dn.value = man(targetOf(b, anaFy - 1, '下期'));
+  });
+  showToast((anaFy - 1) + '年度の目標を入力欄にコピーしました（保存で確定します）');
 }
 async function saveTargets(){
   const btn = document.getElementById('btnTgSave');
@@ -2050,6 +2064,44 @@ function sheetNoKey(d){
   const hasNo = d.no !== undefined && d.no !== null && d.no !== '';
   return String(hasNo ? d.no : (d.rowNum || '')).trim();
 }
+// ==== ボードの年度切替（3月決算＝4月始まり） ====
+// 今年度：進行中（未設定・見積中・受注・工事中）は、年度をまたいで繰り越して表示し、完了・失注はその年度のものだけを表示する。
+//         4月1日をすぎると、自動で新しい年度に切り替わる（前年度の完了・失注は、非表示になる）。
+// 来年度：同じ規則（進行中は繰り越し）。前年度以前：その年度の案件を、すべての状況で表示する（現在の状況のまま）。
+// 全期間：すべて表示する。年度は、受注日→受注予定月→見積日→発生日の順に判定する（分析と同じ）。
+const BOARD_FY_KEY = 'sinchoku_board_fy';
+let boardFyVal = lsGet(BOARD_FY_KEY) || 'cur';   // 'cur'＝今年度（自動）／'all'／年度（数値の文字列）
+function boardFyTarget(){ return boardFyVal === 'cur' ? fyOf(new Date()) : (boardFyVal === 'all' ? 'all' : Number(boardFyVal)); }
+function boardFyMatch(d){
+  const fy = boardFyTarget();
+  if(fy === 'all') return true;
+  const st = effStatus(d);
+  const decided = (st === '完了' || st === '失注');
+  const bd = dealBaseDate(d);
+  const dfy = bd ? fyOf(bd) : null;
+  if(fy >= fyOf(new Date())) return decided ? dfy === fy : true;
+  return dfy === fy;
+}
+function populateBoardFy(){
+  const sel = document.getElementById('boardFy');
+  if(!sel) return;
+  const cur = fyOf(new Date());
+  const years = new Set([cur - 1, cur + 1]);
+  deals.forEach(d => { const bd = dealBaseDate(d); if(bd) years.add(fyOf(bd)); });
+  const ys = [...years].filter(y => y >= 2000 && y <= cur + 1 && y !== cur).sort((a, b) => b - a);
+  sel.innerHTML = `<option value="cur">今年度（${cur}年度）</option><option value="all">全期間</option>` +
+    ys.map(y => `<option value="${y}">${y}年度${y === cur + 1 ? '（来年度）' : y === cur - 1 ? '（前年度）' : ''}</option>`).join('');
+  if(!Array.from(sel.options).some(o => o.value === boardFyVal)) boardFyVal = 'cur';
+  sel.value = boardFyVal;
+  sel.classList.toggle('alt', boardFyVal !== 'cur');
+}
+document.getElementById('boardFy').addEventListener('change', e => {
+  boardFyVal = e.target.value || 'cur';
+  lsSet(BOARD_FY_KEY, boardFyVal);
+  e.target.classList.toggle('alt', boardFyVal !== 'cur');
+  render();
+});
+
 function visibleDeals(){
   const sq = parseSearchTerms(searchVal);
   const exTerms = normSearch(excludeVal).split(/[\s　]+/).filter(Boolean);
@@ -2058,6 +2110,7 @@ function visibleDeals(){
   const min = minAmountVal !== '' ? Number(minAmountVal) : null;
   const max = maxAmountVal !== '' ? Number(maxAmountVal) : null;
   return deals.filter(d =>
+    boardFyMatch(d) &&
     (!branchFilterVal || (d.branches ? d.branches.includes(branchFilterVal) : d.branch === branchFilterVal)) &&
     (!assigneeFilterVal || d.assignee === assigneeFilterVal) &&
     (!rankFilterVal || d.rank === rankFilterVal) &&
@@ -2095,6 +2148,7 @@ function populateFilters(){
   const ordered = BRANCH_ORDER.filter(b => branches.indexOf(b) >= 0).concat(branches.filter(b => BRANCH_ORDER.indexOf(b) < 0));
   nb.innerHTML = '<option value="">全拠点</option>' + ordered.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
   nb.value = curBranch;
+  populateBoardFy();
 }
 
 function updateFilterCountBadge(){
@@ -2219,6 +2273,7 @@ function render(){
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openCashPanel()">💴 仕入・入金見込</button></div>
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openAnalysisPanel()">📊 受注率・分析</button></div>
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openNamePanel()">🧹 表記ゆれ</button></div>
+    ${(() => { const n = deals.filter(d => !boardFyMatch(d)).length; return n ? `<div class="s-item s-action"><button class="btn btn-ghost" onclick="boardFyVal='all'; lsSet(BOARD_FY_KEY, 'all'); populateBoardFy(); render();" title="年度の切替で非表示になっている案件を、すべて表示します">📆 他の年度${n}件を非表示中（全期間で表示）</button></div>` : ''; })()}
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openPdfImport()">📄 見積PDF</button></div>
     ${futureOccTargets().length ? `<div class="s-item s-action"><button class="btn btn-ghost" onclick="openFutureOcc()">📅 発生日が先の日付（${futureOccTargets().length}件）</button></div>` : ''}
     ${bulkCompleteTargets().length ? `<div class="s-item s-action"><button class="btn btn-ghost" onclick="openBulkComplete()">✅ 確定金額あり→完了（${bulkCompleteTargets().length}件）</button></div>` : ''}
