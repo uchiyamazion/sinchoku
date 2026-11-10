@@ -24,6 +24,35 @@ function makeErr(msg) {
 // ════════════════════════════════════════════════
 
 const SOURCE_SHEETS = ['営業部', '営業部（ビルメン）', '１課', '２課', '３課', '函館', '旭川'];
+
+// ════════════════════════════════════════════════
+// 年度のシート
+// 「旭川_2027」のように「拠点名_年度」の名前のタブを、その拠点の年度シートとして一緒に読み込む。
+// 年度（4月始まり）の入ったシートは、同じ拠点の案件として扱う（Noは年度シートごとに1から振り直せる）。
+// 拠点名だけのタブ（2026年度のシート）は、これまでどおり。idは「タブ名::案件No」なので、既存の追加情報は、そのまま使える。
+// ════════════════════════════════════════════════
+function sourceTabs_() {
+  const tabs = SOURCE_SHEETS.map(b => ({ tab: b, branch: b, fy: null }));
+  SS().getSheets().forEach(s => {
+    const n = s.getName();
+    const m = n.match(/^(.+)_(\d{4})$/);
+    if (m && SOURCE_SHEETS.indexOf(m[1]) >= 0) tabs.push({ tab: n, branch: m[1], fy: Number(m[2]) });
+  });
+  return tabs;
+}
+function isSourceTab_(name) { return sourceTabs_().some(t => t.tab === name); }
+// 書き込み対象のタブ名（クライアントが sheet を送ってくればそれ、なければ branch）
+function tabOf_(data) { return data.sheet || data.branch; }
+function currentFy_() {
+  const p = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-M').split('-').map(Number);
+  return p[1] >= 4 ? p[0] : p[0] - 1;
+}
+// 新規作成の書き込み先：今年度の年度シート（例：旭川_2027）があればそれ、なければ拠点名のシート
+function resolveCreateTab_(data) {
+  if (data.sheet && isSourceTab_(data.sheet)) return data.sheet;
+  const cand = data.branch + '_' + currentFy_();
+  return (sheet(cand) && isSourceTab_(cand)) ? cand : data.branch;
+}
 const HEADER_ROW = 8;
 const DATA_START_ROW = 9;
 
@@ -109,6 +138,7 @@ function doPost(e) {
       case 'deal_core_update':  result = dealCoreUpdate(payload.data || payload); break;
       case 'deal_core_create':  result = dealCoreCreate(payload.data || payload); break;
       case 'deal_delete':       result = dealDelete(payload.data || payload); break;
+      case 'fy_sheets_create':  result = createFiscalYearSheets(payload.data || payload); break;
       case 'values_rename':     result = valuesRename(payload.data || payload); break;
       case 'deal_conflict_check': return dealConflictCheck(payload.data || payload);
       case 'target_save':       return targetSave(payload.data || payload);
@@ -126,7 +156,7 @@ function doPost(e) {
 // 既存シートの読み込み（読み取り専用）
 // ════════════════════════════════════════════════
 
-function readSourceSheet_(sheetName) {
+function readSourceSheet_(sheetName, branchName, fy) {
   const sh = sheet(sheetName);
   if (!sh) return [];
   const lastRow = sh.getLastRow();
@@ -147,7 +177,9 @@ function readSourceSheet_(sheetName) {
 
     out.push({
       id: id,
-      branch: sheetName,
+      branch: branchName || sheetName,
+      sheet: sheetName,
+      sheetFy: fy || '',
       dealNo: dealNo || '',
       rowNum: rowNum,
       no: row[COL.no - 1] || '',
@@ -174,8 +206,8 @@ function readSourceSheet_(sheetName) {
 
 function readAllSources_() {
   let all = [];
-  SOURCE_SHEETS.forEach(name => {
-    all = all.concat(readSourceSheet_(name));
+  sourceTabs_().forEach(t => {
+    all = all.concat(readSourceSheet_(t.tab, t.branch, t.fy));
   });
   return all;
 }
@@ -377,7 +409,7 @@ function dealConflictCheck(data) {
   try {
     const result = { core: [], extra: null };
     if (data.branch && data.rowNum && data.changedCore && data.changedCore.length) {
-      const sh = sheet(data.branch);
+      const sh = sheet(tabOf_(data));
       if (sh) {
         const r = resolveRowNum_(sh, data.rowNum, data.origDealNo);
         if (r > 0) result.core = coreConflicts_(sh, r, data.changedCore, data.baseCore);
@@ -502,8 +534,8 @@ function valuesRename(data) {
         }
       });
     } else if (RENAMEABLE_FIELDS.indexOf(field) >= 0) {
-      SOURCE_SHEETS.forEach(name => {
-        const sh = sheet(name);
+      sourceTabs_().forEach(t => {
+        const sh = sheet(t.tab);
         if (!sh) return;
         const lastRow = sh.getLastRow();
         if (lastRow < DATA_START_ROW) return;
@@ -525,6 +557,47 @@ function valuesRename(data) {
   }
 }
 
+// ════════════════════════════════════════════════
+// 年度シートの作成（例：2027年度）
+// 各拠点の現在のシート（拠点名のタブ）を複製して「拠点名_2027」を作り、案件の入力欄だけを空にする。
+// B列のNo・数式のセル・書式・列幅はそのまま。すでにあるタブは、作り直さずに飛ばす（何度押しても安全）。
+// ════════════════════════════════════════════════
+function createFiscalYearSheets(data) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const fy = Number(data.fy);
+    if (!fy || fy < 2000 || fy > 2100) return makeErr('年度が正しくありません: ' + data.fy);
+    const inputCols = ['dealNo'].concat(EDITABLE_CORE_FIELDS).map(f => COL[f]);
+    const created = [], skipped = [], missing = [];
+    SOURCE_SHEETS.forEach(base => {
+      const name = base + '_' + fy;
+      if (sheet(name)) { skipped.push(name); return; }
+      const src = sheet(base);
+      if (!src) { missing.push(base); return; }
+      const copy = src.copyTo(SS());
+      copy.setName(name);
+      const lastRow = copy.getLastRow();
+      if (lastRow >= DATA_START_ROW) {
+        const n = lastRow - DATA_START_ROW + 1;
+        inputCols.forEach(c => {
+          const rng = copy.getRange(DATA_START_ROW, c, n, 1);
+          const fs = rng.getFormulas();
+          // 数式のセルは、数式のまま残す。それ以外（入力された値）は空にする
+          rng.setValues(fs.map(r => [r[0] ? r[0] : '']));
+        });
+      }
+      created.push(name);
+    });
+    invalidateDealCache_();
+    return makeRes({ fy: fy, created: created, skipped: skipped, missing: missing });
+  } catch (err) {
+    return makeErr('createFiscalYearSheets error: ' + err.toString());
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function dealCoreCreate(data) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -532,8 +605,9 @@ function dealCoreCreate(data) {
     if (!data.branch || SOURCE_SHEETS.indexOf(data.branch) < 0) {
       return makeErr('拠点(branch)が不正です: ' + data.branch);
     }
-    const sh = sheet(data.branch);
-    if (!sh) return makeErr('シートが見つかりません: ' + data.branch);
+    const tab = resolveCreateTab_(data);
+    const sh = sheet(tab);
+    if (!sh) return makeErr('シートが見つかりません: ' + tab);
 
     const lastRow = Math.max(sh.getLastRow(), HEADER_ROW);
 
@@ -566,10 +640,10 @@ function dealCoreCreate(data) {
     });
 
     // 案件Noが空の場合は、他の未入力行と同じ「拠点::r行番号」形式のidにする（一覧取得時と一致させる）
-    const id = dealNo ? (data.branch + '::' + dealNo) : (data.branch + '::r' + newRow);
+    const id = dealNo ? (tab + '::' + dealNo) : (tab + '::r' + newRow);
 
     const newNo = sh.getRange(newRow, COL.no).getValue();
-    return makeRes({ id: id, branch: data.branch, rowNum: newRow, dealNo: dealNo, no: newNo });
+    return makeRes({ id: id, branch: data.branch, sheet: tab, rowNum: newRow, dealNo: dealNo, no: newNo });
   } catch (err) {
     return makeErr('dealCoreCreate error: ' + err.toString());
   } finally {
@@ -582,8 +656,9 @@ function dealCoreUpdate(data) {
   lock.waitLock(30000);
   try {
     if (!data.branch || !data.rowNum) return makeErr('branch / rowNum が指定されていません');
-    const sh = sheet(data.branch);
-    if (!sh) return makeErr('シートが見つかりません: ' + data.branch);
+    const tab = tabOf_(data);
+    const sh = sheet(tab);
+    if (!sh) return makeErr('シートが見つかりません: ' + tab);
 
     let rowNum = Number(data.rowNum);
     const origDealNo = data.origDealNo !== undefined ? data.origDealNo : data.dealNo;
@@ -625,11 +700,11 @@ function dealCoreUpdate(data) {
       newDealNo = data.dealNo;
       sh.getRange(rowNum, COL.dealNo).setValue(newDealNo);
       if (origDealNo) {
-        renameExtraId_(data.branch + '::' + origDealNo, data.branch + '::' + newDealNo);
+        renameExtraId_(tab + '::' + origDealNo, tab + '::' + newDealNo);
       }
     }
 
-    return makeRes({ id: data.branch + '::' + newDealNo, rowNum: rowNum, dealNo: newDealNo });
+    return makeRes({ id: tab + '::' + newDealNo, rowNum: rowNum, dealNo: newDealNo });
   } catch (err) {
     return makeErr('dealCoreUpdate error: ' + err.toString());
   } finally {
@@ -651,11 +726,12 @@ function dealDelete(data) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    if (!data.branch || SOURCE_SHEETS.indexOf(data.branch) < 0 || !data.rowNum) {
+    const tab = tabOf_(data);
+    if (!tab || !isSourceTab_(tab) || !data.rowNum) {
       return makeErr('branch / rowNum が正しく指定されていません');
     }
-    const sh = sheet(data.branch);
-    if (!sh) return makeErr('シートが見つかりません: ' + data.branch);
+    const sh = sheet(tab);
+    if (!sh) return makeErr('シートが見つかりません: ' + tab);
 
     // 行ズレの補正（案件Noで突合）。案件Noが無い案件は、行番号をそのまま使う
     const rowNum = resolveRowNum_(sh, data.rowNum, data.origDealNo);
@@ -682,7 +758,7 @@ function dealDelete(data) {
     const exVals = exSh.getDataRange().getValues();
     const exHeaders = exVals[0];
     const idCol = exHeaders.indexOf('id');
-    const extraId = data.id || (data.branch + '::' + (core.dealNo ? core.dealNo : 'r' + rowNum));
+    const extraId = data.id || (tab + '::' + (core.dealNo ? core.dealNo : 'r' + rowNum));
     let exRowIdx = -1, extra = null;
     for (let i = 1; i < exVals.length; i++) {
       if (exVals[i][idCol] == extraId) {
@@ -695,7 +771,7 @@ function dealDelete(data) {
 
     let log = sheet(DELETE_LOG_SHEET_NAME);
     if (!log) { log = SS().insertSheet(DELETE_LOG_SHEET_NAME); log.appendRow(DELETE_LOG_HEADERS); }
-    log.appendRow([new Date(), data.branch, rowNum, core.no, core.dealNo, core.customerName, core.siteName, core.projectName,
+    log.appendRow([new Date(), tab, rowNum, core.no, core.dealNo, core.customerName, core.siteName, core.projectName,
       JSON.stringify(core), extra ? JSON.stringify(extra) : '']);
 
     // 元シート：案件No＋基本情報の入力欄を空にする（数式のセルは残す）

@@ -1966,16 +1966,17 @@ function findConflicts(){
 // 他のシートにも同じ案件Noがあるカードには dupBranches（そのシート名）を付け、カードに「重複」バッジを出す。
 function dedupeByDealNo(list){
   const byNo = {};
-  list.forEach(d => { if(d.dealNo){ (byNo[d.dealNo] = byNo[d.dealNo] || new Set()).add(d.branch); } });
+  list.forEach(d => { if(d.dealNo){ (byNo[d.dealNo] = byNo[d.dealNo] || new Set()).add(d.sheet || d.branch); } });
   const seen = new Set();
   const result = [];
   list.forEach(d => {
+    const tab = d.sheet || d.branch;   // 年度シート（例：旭川_2027）は、別のシートとして扱う
     const copy = Object.assign({}, d, { branches: [d.branch] });
     if(d.dealNo){
-      const key = d.branch + '|' + d.dealNo;
+      const key = tab + '|' + d.dealNo;
       if(seen.has(key)) return;
       seen.add(key);
-      const others = Array.from(byNo[d.dealNo]).filter(x => x !== d.branch);
+      const others = Array.from(byNo[d.dealNo]).filter(x => x !== tab);
       if(others.length) copy.dupBranches = others;
     }
     result.push(copy);
@@ -1985,6 +1986,7 @@ function dedupeByDealNo(list){
 
 // 「集計から外す」が付いた案件か（カードは表示するが、金額・件数・分析・入金見込・重複判定の集計には入れない）
 function isExcluded(d){ return d && String(d.excluded) === '1'; }
+
 function amountOf(d){
   const v = d.confirmedAmount !== '' && d.confirmedAmount != null ? d.confirmedAmount : d.quoteAmount;
   const n = Number(v);
@@ -2101,6 +2103,30 @@ document.getElementById('boardFy').addEventListener('change', e => {
   e.target.classList.toggle('alt', boardFyVal !== 'cur');
   render();
 });
+
+// ==== 年度のシートを作る（例：2027年度） ====
+// 各拠点のシートを複製して「旭川_2027」のような年度シートを作り、入力欄だけを空にする。作ったシートは、自動で読み込まれる。
+// 4月（新年度）になると、新規案件は今年度の年度シートに入る。すでにあるシートは作り直さない（何度押しても安全）。
+async function openFySheets(){
+  const def = fyOf(new Date()) + 1;
+  const v = prompt('年度のシートを作ります（各拠点のシートを複製して、「拠点名_年度」のシートを作り、入力欄を空にします）。\n作る年度（4月始まり）を入力してください：', String(def));
+  if(v === null) return;
+  const fy = Number(String(v).replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/[^\d]/g, ''));
+  if(!fy || fy < 2000 || fy > 2100){ alert('年度が正しくありません'); return; }
+  if(!confirm(fy + '年度のシート（旭川_' + fy + ' など、7拠点分）を作ります。\n元の' + (fy - 1) + '年度のシートは変わりません。よろしいですか？')) return;
+  try{
+    const res = await gasPost('fy_sheets_create', { fy });
+    if(res.status !== 'success'){ alert('作成できませんでした：' + res.data); return; }
+    const r = res.data;
+    alert((r.created.length ? '作成しました：\n' + r.created.join('\n') : '新しく作ったシートはありません。') +
+      (r.skipped.length ? '\n\nすでにあったので飛ばしました：\n' + r.skipped.join('\n') : '') +
+      (r.missing.length ? '\n\n元のシートが見つからず作れませんでした：\n' + r.missing.join('\n') : '') +
+      '\n\nシートの上の見出しなどに年度の文字がある場合は、スプレッドシートで直してください。');
+    await loadDeals({ force: true });
+  }catch(e){
+    alert('作成できませんでした：' + (e && e.message ? e.message : e));
+  }
+}
 
 function visibleDeals(){
   const sq = parseSearchTerms(searchVal);
@@ -2274,6 +2300,7 @@ function render(){
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openAnalysisPanel()">📊 受注率・分析</button></div>
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openNamePanel()">🧹 表記ゆれ</button></div>
     ${(() => { const n = deals.filter(d => !boardFyMatch(d)).length; return n ? `<div class="s-item s-action"><button class="btn btn-ghost" onclick="boardFyVal='all'; lsSet(BOARD_FY_KEY, 'all'); populateBoardFy(); render();" title="年度の切替で非表示になっている案件を、すべて表示します">📆 他の年度${n}件を非表示中（全期間で表示）</button></div>` : ''; })()}
+    <div class="s-item s-action"><button class="btn btn-ghost" onclick="openFySheets()" title="来年度などの年度シート（旭川_2027 など）を作ります">🗂 年度シート</button></div>
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openPdfImport()">📄 見積PDF</button></div>
     ${futureOccTargets().length ? `<div class="s-item s-action"><button class="btn btn-ghost" onclick="openFutureOcc()">📅 発生日が先の日付（${futureOccTargets().length}件）</button></div>` : ''}
     ${bulkCompleteTargets().length ? `<div class="s-item s-action"><button class="btn btn-ghost" onclick="openBulkComplete()">✅ 確定金額あり→完了（${bulkCompleteTargets().length}件）</button></div>` : ''}
@@ -2556,7 +2583,7 @@ document.getElementById('btnPdfRegister').addEventListener('click', async () => 
         const keys = Object.keys(upd);
         if(keys.length){
           const baseCore = {}; keys.forEach(f => { baseCore[f] = d[f]; });
-          const cr = await gasPost('deal_core_update', Object.assign({ id: d.id, branch: d.branch, rowNum: d.rowNum, origDealNo: d.dealNo, changedCore: keys, baseCore, force: false }, upd));
+          const cr = await gasPost('deal_core_update', Object.assign({ id: d.id, branch: d.branch, sheet: d.sheet, rowNum: d.rowNum, origDealNo: d.dealNo, changedCore: keys, baseCore, force: false }, upd));
           if(cr.status === 'conflict'){ problems.push(label + '：他の人が先に更新していたため見送りました（再読み込みして、もう一度お試しください）'); continue; }
           if(cr.status !== 'success'){ problems.push(label + '：更新に失敗（' + cr.data + '）'); continue; }
           if(cr.data && cr.data.id) targetId = cr.data.id;
@@ -2630,7 +2657,7 @@ document.getElementById('btnFutApply').addEventListener('click', async () => {
     btn.textContent = '直しています… ' + (k + 1) + '/' + sel.length;
     const x = sel[k];
     try{
-      const res = await gasPost('deal_core_update', { id: x.d.id, branch: x.d.branch, rowNum: x.d.rowNum, origDealNo: x.d.dealNo,
+      const res = await gasPost('deal_core_update', { id: x.d.id, branch: x.d.branch, sheet: x.d.sheet, rowNum: x.d.rowNum, origDealNo: x.d.dealNo,
         occurredDate: x.fix, changedCore: ['occurredDate'], baseCore: { occurredDate: x.d.occurredDate }, force: false });
       if(res.status === 'success') ok++; else if(res.status === 'conflict') conflict++; else failed++;
     }catch(e){ failed++; }
@@ -2711,7 +2738,7 @@ function renderCard(d, hasConflict, justUpdated){
   el.innerHTML = `
     ${uInfo ? `<div class="status-flag">${unreadLabel(uInfo.kind)}</div>` : ''}
     ${justUpdated ? `<div class="updated-flag">✨ 更新されました</div>` : ''}
-    <span class="branch-tag">${escapeHtml((d.branches && d.branches.length > 1) ? d.branches.join(' / ') : d.branch)}</span>${sheetNoHtml(d)}${isExcluded(d) ? `<span class="badge b-grey" title="集計に入れていません（編集画面で戻せます）">集計外</span>` : ''}${d.dupBranches ? `<span class="badge b-red" title="同じ案件Noが他のシートにもあります">重複：${escapeHtml(d.dupBranches.join('・'))}にも</span>` : ''}
+    <span class="branch-tag">${escapeHtml((d.branches && d.branches.length > 1) ? d.branches.join(' / ') : d.branch)}${d.sheetFy ? '・' + escapeHtml(String(d.sheetFy).slice(2)) + '年度' : ''}</span>${sheetNoHtml(d)}${isExcluded(d) ? `<span class="badge b-grey" title="集計に入れていません（編集画面で戻せます）">集計外</span>` : ''}${d.dupBranches ? `<span class="badge b-red" title="同じ案件Noが他のシートにもあります">重複：${escapeHtml(d.dupBranches.join('・'))}にも</span>` : ''}
     <div class="cname">${escapeHtml(d.siteName || d.projectName || '(現場未設定)')}</div>
     <div class="pname">${escapeHtml(d.customerName||'')}${d.projectName && d.siteName ? '　' + escapeHtml(d.projectName) : ''}</div>
     <div class="row">
@@ -2844,7 +2871,7 @@ document.querySelectorAll('.col-body').forEach(body => {
       // 失注に移したら、ランクもEにそろえる（元シートのランク列を更新）
       if(newStatus === '失注' && deal.rank !== 'E'){
         const rr = await gasPost('deal_core_update', {
-          id: deal.id, branch: deal.branch, rowNum: deal.rowNum, origDealNo: deal.dealNo,
+          id: deal.id, branch: deal.branch, sheet: deal.sheet, rowNum: deal.rowNum, origDealNo: deal.dealNo,
           rank: 'E', changedCore: ['rank'], baseCore: { rank: deal.rank }, force: true
         });
         if(rr.status === 'success'){ deal.rank = 'E'; render(); msg += '（ランクもEに変更）'; }
@@ -3085,10 +3112,10 @@ document.getElementById('btnDelete').addEventListener('click', async () => {
   const baseCore = {};
   ['dealNo','customerName','siteName','projectName','quoteAmount','confirmedAmount'].forEach(f => { baseCore[f] = d[f]; });
   try{
-    let res = await gasPost('deal_delete', { id: d.id, branch: d.branch, rowNum: d.rowNum, origDealNo: d.dealNo, baseCore, force: false });
+    let res = await gasPost('deal_delete', { id: d.id, branch: d.branch, sheet: d.sheet, rowNum: d.rowNum, origDealNo: d.dealNo, baseCore, force: false });
     if(res.status === 'conflict'){
       if(!confirm('他の人がこの案件を先に更新しています。\nそれでも削除しますか？')){ btn.disabled = false; return; }
-      res = await gasPost('deal_delete', { id: d.id, branch: d.branch, rowNum: d.rowNum, origDealNo: d.dealNo, baseCore, force: true });
+      res = await gasPost('deal_delete', { id: d.id, branch: d.branch, sheet: d.sheet, rowNum: d.rowNum, origDealNo: d.dealNo, baseCore, force: true });
     }
     if(res.status !== 'success'){ alert('削除できませんでした：' + res.data); btn.disabled = false; return; }
     closeModal();
@@ -3202,7 +3229,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
     const origDealNo = currentDeal.dealNo;
     const newDealNo = document.getElementById('c-dealNo').value;
 
-    const coreData = { id, branch: currentDeal.branch, rowNum: currentDeal.rowNum, origDealNo: origDealNo };
+    const coreData = { id, branch: currentDeal.branch, sheet: currentDeal.sheet, rowNum: currentDeal.rowNum, origDealNo: origDealNo };
     coreFields.forEach(f => { coreData[f] = document.getElementById('c-' + f).value; });
 
     // 自分が変更した基本情報の項目と、読み込み時の値（競合検知用）
@@ -3215,7 +3242,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
     // 保存前に、他の人の更新と競合していないか確認
     let force = false;
     const chk = await gasPost('deal_conflict_check', {
-      branch: currentDeal.branch, rowNum: currentDeal.rowNum, origDealNo,
+      branch: currentDeal.branch, sheet: currentDeal.sheet, rowNum: currentDeal.rowNum, origDealNo,
       changedCore: coreData.changedCore, baseCore: coreData.baseCore,
       extraId: id, baseUpdatedAt
     });
@@ -3388,7 +3415,7 @@ function sheetNoHtml(d){
   if(!d.rowNum) return '';
   const hasNo = d.no !== undefined && d.no !== '';
   const label = hasNo ? 'No.' + d.no : d.rowNum + '行目';
-  const title = `シート「${d.branch}」${hasNo ? ' No.' + d.no + '／' : ''}${d.rowNum}行目`;
+  const title = `シート「${d.sheet || d.branch}」${hasNo ? ' No.' + d.no + '／' : ''}${d.rowNum}行目`;
   return `<span class="sheet-no" title="${escapeHtml(title)}">${escapeHtml(String(label))}</span>`;
 }
 function completenessBadge(d){
