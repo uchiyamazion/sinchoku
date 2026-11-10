@@ -362,6 +362,7 @@
   .modal h2{ margin:0 0 2px; font-size:16.5px; }
   .sheet-no{ font-size:15px; font-weight:700; color:#fff; background:var(--navy); border-radius:6px; padding:1px 9px; font-family:'IBM Plex Mono',monospace; margin-left:5px; letter-spacing:.02em; }
   #noJump{ width:84px; }
+  #noJumpBranch{ width:104px; }
   .modal .branch-tag{ display:inline-block; font-size:10.5px; font-weight:600; color:var(--navy); background:var(--navy-soft); padding:1px 7px; border-radius:8px; margin-bottom:8px; }
 
   .section-label{ font-size:11px; font-weight:700; color:var(--navy); margin:16px 0 8px; border-bottom:1px solid var(--navy-soft); padding-bottom:4px; }
@@ -479,6 +480,7 @@
     <div class="sub"><span id="lastUpdated">未取得</span></div>
   </div>
   <div class="header-right">
+    <select id="noJumpBranch" title="拠点を選ぶと、その拠点のシートのNoだけを探します"><option value="">全拠点</option></select>
     <input type="search" id="noJump" inputmode="numeric" placeholder="No." title="シートのNoで探す（全シートから該当のNoを表示）" autocomplete="off">
     <input type="text" id="searchBox" placeholder="🔍 フリー検索（スペースでAND／-語で除外）">
     <button class="btn btn-ghost" id="btnToggleFilters">絞り込み <span id="filterCount" class="filter-count-badge" style="display:none;"></span></button>
@@ -2032,6 +2034,11 @@ function populateFilters(){
   sourceSel.innerHTML = '<option value="">すべての源泉</option>' + sources.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
   orderMonthSel.innerHTML = '<option value="">すべての受注予定月</option>' + orderMonths.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
   branchSel.value = curBranch; assigneeSel.value = curAssignee; sourceSel.value = curSource; orderMonthSel.value = curOrderMonth;
+  // ヘッダーの「拠点＋No」の拠点欄（絞り込みの拠点と連動）。シートの並びの順に出す
+  const nb = document.getElementById('noJumpBranch');
+  const ordered = BRANCH_ORDER.filter(b => branches.indexOf(b) >= 0).concat(branches.filter(b => BRANCH_ORDER.indexOf(b) < 0));
+  nb.innerHTML = '<option value="">全拠点</option>' + ordered.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
+  nb.value = curBranch;
 }
 
 function updateFilterCountBadge(){
@@ -2050,6 +2057,7 @@ function updateFilterCountBadge(){
 
 function render(){
   updateFilterCountBadge();
+  { const nb = document.getElementById('noJumpBranch'); if(nb && nb.value !== branchFilterVal) nb.value = branchFilterVal; }
   try{ renderFunBar(); }catch(e){ console.error(e); }
   let visible = visibleDeals();
   const { conflictIds, pairs } = findConflicts();
@@ -2626,6 +2634,11 @@ function renderCard(d, hasConflict, justUpdated){
 
 // ==== フィルタ・ソート ====
 document.getElementById('branchFilter').addEventListener('change', e => { branchFilterVal = e.target.value; render(); });
+document.getElementById('noJumpBranch').addEventListener('change', e => {
+  branchFilterVal = e.target.value;
+  document.getElementById('branchFilter').value = branchFilterVal;
+  render();
+});
 document.getElementById('assigneeFilter').addEventListener('change', e => { assigneeFilterVal = e.target.value; render(); });
 document.getElementById('rankFilter').addEventListener('change', e => { rankFilterVal = e.target.value; render(); });
 document.getElementById('sourceFilter').addEventListener('change', e => { sourceFilterVal = e.target.value; render(); });
