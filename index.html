@@ -621,6 +621,17 @@
   </div>
 </div>
 
+<div class="overlay" id="futOverlay">
+  <div class="modal pdf-modal">
+    <h2>📅 発生日が先の日付になっている案件</h2>
+    <div id="futBody"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="btnFutClose">閉じる</button>
+      <button class="btn btn-primary" id="btnFutApply">選んだ案件を直す</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="cashOverlay">
   <div class="modal cash-modal">
     <h2>💴 仕入・入金の見込み</h2>
@@ -2128,6 +2139,7 @@ function render(){
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openAnalysisPanel()">📊 受注率・分析</button></div>
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openNamePanel()">🧹 表記ゆれ</button></div>
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openPdfImport()">📄 見積PDF</button></div>
+    ${futureOccTargets().length ? `<div class="s-item s-action"><button class="btn btn-ghost" onclick="openFutureOcc()">📅 発生日が先の日付（${futureOccTargets().length}件）</button></div>` : ''}
     ${bulkCompleteTargets().length ? `<div class="s-item s-action"><button class="btn btn-ghost" onclick="openBulkComplete()">✅ 確定金額あり→完了（${bulkCompleteTargets().length}件）</button></div>` : ''}
   `;
 
@@ -2433,6 +2445,67 @@ document.getElementById('btnPdfRegister').addEventListener('click', async () => 
     document.getElementById('pdfOverlay').classList.remove('open');
     showToast('✅ 見積PDFから ' + ok + '件を登録しました');
   }
+});
+
+// ==== 発生日が未来になっている案件を、年を直す ====
+// 発生日（問い合わせ・案件が発生した日）が今日より先になっている案件は、年の入力ミスの可能性が高い
+// （例：2025年12月のつもりが、年が省略されて2026年12月になっている）。一覧で確認して、年を1年戻す。
+function todayStr(){
+  const n = new Date();
+  return n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0') + '-' + String(n.getDate()).padStart(2, '0');
+}
+function shiftYear(ymd, delta){
+  const p = ymd.split('-').map(Number);
+  const dt = new Date(p[0] + delta, p[1] - 1, p[2]);
+  return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+}
+function futureOccTargets(){
+  const t = todayStr();
+  return deals.filter(d => d.occurredDate && toDateInputVal(d.occurredDate) > t)
+    .map(d => { const cur = toDateInputVal(d.occurredDate); return { d, cur, fix: shiftYear(cur, -1) }; });
+}
+function openFutureOcc(){
+  const list = futureOccTargets();
+  const t = todayStr();
+  const rows = list.map((x, i) => {
+    const ok = x.fix <= t;
+    return `<tr><td><input type="checkbox" id="fo-${i}" ${ok ? 'checked' : 'disabled'}></td>
+      <td>${escapeHtml(x.d.siteName || x.d.projectName || x.d.customerName || '名称なし')}<span class="mo">${escapeHtml(x.d.branch)}${x.d.no !== undefined && x.d.no !== '' ? ' No.' + escapeHtml(String(x.d.no)) : ''}</span></td>
+      <td class="num">${x.cur.replace(/-/g, '/')}</td><td class="num">${ok ? '<b>' + x.fix.replace(/-/g, '/') + '</b>' : '直せません（手動で確認）'}</td></tr>`;
+  }).join('');
+  document.getElementById('futBody').innerHTML = list.length
+    ? `<div class="cash-sub">発生日が<b>今日（${t.replace(/-/g, '/')}）より先</b>になっている案件です。発生日は、案件が発生した日なので、先の日付は年の入力ミスの可能性が高いです。<br>チェックを入れた案件の発生日を、<b>1年前の同じ日</b>に直します（元のシートのセルが書き換わります）。直さない案件は、チェックを外してください。</div>
+      <div class="cash-table-wrap cash-detail"><table class="cash-table"><thead><tr><th></th><th>案件</th><th>いまの発生日</th><th>直した後</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    : '<div class="cash-sub">発生日が先の日付になっている案件は、ありません。</div>';
+  document.getElementById('btnFutApply').disabled = !list.length;
+  window.__futList = list;
+  document.getElementById('futOverlay').classList.add('open');
+}
+document.getElementById('btnFutClose').addEventListener('click', () => document.getElementById('futOverlay').classList.remove('open'));
+document.getElementById('btnFutApply').addEventListener('click', async () => {
+  const list = window.__futList || [];
+  const sel = list.filter((x, i) => { const el = document.getElementById('fo-' + i); return el && el.checked && !el.disabled; });
+  if(!sel.length){ alert('直す案件が選ばれていません'); return; }
+  if(!confirm(sel.length + '件の発生日を、1年前に直します。元のシートが書き換わります。よろしいですか？')) return;
+  const btn = document.getElementById('btnFutApply');
+  btn.disabled = true;
+  let ok = 0, conflict = 0, failed = 0;
+  for(let k = 0; k < sel.length; k++){
+    btn.textContent = '直しています… ' + (k + 1) + '/' + sel.length;
+    const x = sel[k];
+    try{
+      const res = await gasPost('deal_core_update', { id: x.d.id, branch: x.d.branch, rowNum: x.d.rowNum, origDealNo: x.d.dealNo,
+        occurredDate: x.fix, changedCore: ['occurredDate'], baseCore: { occurredDate: x.d.occurredDate }, force: false });
+      if(res.status === 'success') ok++; else if(res.status === 'conflict') conflict++; else failed++;
+    }catch(e){ failed++; }
+  }
+  btn.textContent = '選んだ案件を直す';
+  await loadDeals({ force: true });
+  let msg = '✅ ' + ok + '件の発生日を直しました';
+  if(conflict) msg += '／' + conflict + '件は他の人が先に更新していたため見送り';
+  if(failed) msg += '／' + failed + '件は直せませんでした';
+  showToast(msg, (conflict || failed) ? 'err' : undefined);
+  openFutureOcc();
 });
 
 // ==== 確定金額が入っている案件を「完了」へ一括移動 ====
@@ -2935,6 +3008,9 @@ document.getElementById('f-status').addEventListener('change', e => {
 });
 
 document.getElementById('btnSave').addEventListener('click', async () => {
+  // 発生日が今日より先なら、年の入力ミスを確認する
+  const odv = document.getElementById('c-occurredDate').value;
+  if(odv && odv > todayStr() && !confirm('発生日が今日より先（' + odv.replace(/-/g, '/') + '）になっています。年が違っていませんか？\nこのまま保存しますか？')) return;
   const btn = document.getElementById('btnSave');
   btn.disabled = true; btn.textContent = '保存中…';
   const saveT0 = Date.now();
