@@ -360,7 +360,10 @@
   .overlay.open{ display:flex; }
   .modal{ background:var(--paper); border-radius:10px; width:100%; max-width:600px; padding:24px 24px 20px; box-shadow:0 20px 50px rgba(20,30,45,.3); }
   .modal h2{ margin:0 0 2px; font-size:16.5px; }
-  .sheet-no{ font-size:15px; font-weight:700; color:#fff; background:var(--navy); border-radius:6px; padding:1px 9px; font-family:'IBM Plex Mono',monospace; margin-left:5px; letter-spacing:.02em; }
+  .sheet-no{ font-size:11px; font-weight:600; color:var(--navy); background:#EEF2F7; border-radius:6px; padding:1px 6px; font-family:'IBM Plex Mono',monospace; margin-left:5px; }
+  /* 発表のときなど：Noを大きく目立たせる（ヘッダーの「No強調」で切り替え） */
+  body.no-emph .sheet-no{ font-size:15px; font-weight:700; color:#fff; background:var(--navy); padding:1px 9px; letter-spacing:.02em; }
+  #btnNoEmph.on{ background:var(--navy); color:#fff; border-color:var(--navy); }
   #noJump{ width:84px; }
   #noJumpBranch{ width:104px; }
   .modal .branch-tag{ display:inline-block; font-size:10.5px; font-weight:600; color:var(--navy); background:var(--navy-soft); padding:1px 7px; border-radius:8px; margin-bottom:8px; }
@@ -480,6 +483,7 @@
     <div class="sub"><span id="lastUpdated">未取得</span></div>
   </div>
   <div class="header-right">
+    <button class="btn btn-ghost" id="btnNoEmph" title="カードのNoを大きく目立たせます（発表のときなど）">No強調</button>
     <select id="noJumpBranch" title="拠点を選ぶと、その拠点のシートのNoだけを探します"><option value="">全拠点</option></select>
     <input type="search" id="noJump" inputmode="numeric" placeholder="No." title="シートのNoで探す（全シートから該当のNoを表示）" autocomplete="off">
     <input type="text" id="searchBox" placeholder="🔍 フリー検索（スペースでAND／-語で除外）">
@@ -2658,6 +2662,19 @@ function onAmountInput(){
 }
 document.getElementById('minAmount').addEventListener('input', onAmountInput);
 document.getElementById('maxAmount').addEventListener('input', onAmountInput);
+// カードのNo強調：普段はオフ。ヘッダーのボタンで切り替え（このブラウザに記憶）
+function applyNoEmph(on){
+  document.body.classList.toggle('no-emph', on);
+  const b = document.getElementById('btnNoEmph');
+  b.classList.toggle('on', on);
+  b.textContent = on ? 'No強調：ON' : 'No強調';
+}
+applyNoEmph(lsGet('sinchoku_no_emph') === '1');
+document.getElementById('btnNoEmph').addEventListener('click', () => {
+  const on = !document.body.classList.contains('no-emph');
+  applyNoEmph(on);
+  lsSet('sinchoku_no_emph', on ? '1' : '0');
+});
 document.getElementById('noJump').addEventListener('input', e => {
   noJumpVal = e.target.value.trim().replace(/^no\.?\s*/i, '').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   render();
