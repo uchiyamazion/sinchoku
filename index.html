@@ -360,7 +360,8 @@
   .overlay.open{ display:flex; }
   .modal{ background:var(--paper); border-radius:10px; width:100%; max-width:600px; padding:24px 24px 20px; box-shadow:0 20px 50px rgba(20,30,45,.3); }
   .modal h2{ margin:0 0 2px; font-size:16.5px; }
-  .sheet-no{ font-size:11px; font-weight:600; color:var(--navy); background:#EEF2F7; border-radius:6px; padding:1px 6px; font-family:'IBM Plex Mono',monospace; margin-left:5px; }
+  .sheet-no{ font-size:15px; font-weight:700; color:#fff; background:var(--navy); border-radius:6px; padding:1px 9px; font-family:'IBM Plex Mono',monospace; margin-left:5px; letter-spacing:.02em; }
+  #noJump{ width:84px; }
   .modal .branch-tag{ display:inline-block; font-size:10.5px; font-weight:600; color:var(--navy); background:var(--navy-soft); padding:1px 7px; border-radius:8px; margin-bottom:8px; }
 
   .section-label{ font-size:11px; font-weight:700; color:var(--navy); margin:16px 0 8px; border-bottom:1px solid var(--navy-soft); padding-bottom:4px; }
@@ -478,6 +479,7 @@
     <div class="sub"><span id="lastUpdated">未取得</span></div>
   </div>
   <div class="header-right">
+    <input type="search" id="noJump" inputmode="numeric" placeholder="No." title="シートのNoで探す（全シートから該当のNoを表示）" autocomplete="off">
     <input type="text" id="searchBox" placeholder="🔍 フリー検索（スペースでAND／-語で除外）">
     <button class="btn btn-ghost" id="btnToggleFilters">絞り込み <span id="filterCount" class="filter-count-badge" style="display:none;"></span></button>
     <button class="btn btn-primary" id="btnNew">＋ 新規</button>
@@ -515,6 +517,7 @@
       <label>並び替え</label>
       <select id="sortSelect">
         <option value="date">日付順（工事日→見積提出日→発生日）</option>
+        <option value="sheetNo">シートのNo順（拠点ごと）</option>
         <option value="occurredDateDesc">発生日が新しい順</option>
         <option value="occurredDateAsc">発生日が古い順</option>
         <option value="amountDesc">金額が大きい順</option>
@@ -831,6 +834,7 @@ let branchFilterVal = '';
 let assigneeFilterVal = '';
 let rankFilterVal = '';
 let searchVal = '';
+let noJumpVal = '';   // シートのNoで呼び出し（空＝すべて）
 let excludeVal = '';
 let sourceFilterVal = '';
 let orderMonthFilterVal = '';
@@ -1983,6 +1987,11 @@ function setDatePreset(p){
   render();
 }
 
+// シートのNo（なければ行番号）を文字列で返す。Noで呼び出すときの照合に使う
+function sheetNoKey(d){
+  const hasNo = d.no !== undefined && d.no !== null && d.no !== '';
+  return String(hasNo ? d.no : (d.rowNum || '')).trim();
+}
 function visibleDeals(){
   const sq = parseSearchTerms(searchVal);
   const exTerms = normSearch(excludeVal).split(/[\s　]+/).filter(Boolean);
@@ -1996,6 +2005,7 @@ function visibleDeals(){
     (!rankFilterVal || d.rank === rankFilterVal) &&
     (!sourceFilterVal || d.source === sourceFilterVal) &&
     (!orderMonthFilterVal || d.expectedOrderMonth === orderMonthFilterVal) &&
+    (!noJumpVal || sheetNoKey(d) === noJumpVal) &&
     (min === null || amountOf(d) >= min) &&
     (max === null || amountOf(d) <= max) &&
     matchDateRange(d) &&
@@ -2069,6 +2079,13 @@ function render(){
     };
     switch(sortSelectVal){
 
+      case 'sheetNo':
+        sorted.sort((a,b) => {
+          const ba = BRANCH_ORDER.indexOf(a.branch), bb = BRANCH_ORDER.indexOf(b.branch);
+          if(ba !== bb) return (ba < 0 ? 99 : ba) - (bb < 0 ? 99 : bb);
+          const na = Number(sheetNoKey(a)), nb = Number(sheetNoKey(b));
+          return (isNaN(na) ? 1e9 : na) - (isNaN(nb) ? 1e9 : nb);
+        }); break;
       case 'amountDesc':
         sorted.sort((a,b) => amountOf(b) - amountOf(a)); break;
       case 'amountAsc':
@@ -2628,6 +2645,10 @@ function onAmountInput(){
 }
 document.getElementById('minAmount').addEventListener('input', onAmountInput);
 document.getElementById('maxAmount').addEventListener('input', onAmountInput);
+document.getElementById('noJump').addEventListener('input', e => {
+  noJumpVal = e.target.value.trim().replace(/^no\.?\s*/i, '').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  render();
+});
 let searchDebounce;
 document.getElementById('searchBox').addEventListener('input', e => {
   clearTimeout(searchDebounce);
@@ -2840,7 +2861,8 @@ document.querySelectorAll('.date-presets button').forEach(b => b.addEventListene
 document.getElementById('btnReset').addEventListener('click', () => {
   branchFilterVal = ''; assigneeFilterVal = ''; rankFilterVal = ''; sourceFilterVal = '';
   orderMonthFilterVal = ''; minAmountVal = ''; maxAmountVal = ''; dateFromVal = ''; dateToVal = ''; dateBasisVal = 'occurredDate'; conflictOnlyVal = false; unreadOnlyVal = false; followOnlyVal = false; expiredOnlyVal = false;
-  searchVal = ''; excludeVal = ''; sortSelectVal = 'date';
+  searchVal = ''; excludeVal = ''; sortSelectVal = 'date'; noJumpVal = '';
+  document.getElementById('noJump').value = '';
 
   document.getElementById('branchFilter').value = '';
   document.getElementById('assigneeFilter').value = '';
