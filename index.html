@@ -644,6 +644,23 @@
   </div>
 </div>
 
+<div class="overlay" id="supOverlay">
+  <div class="modal pdf-modal" style="max-width:900px;">
+    <h2>🏭 発注先別の年度集計</h2>
+    <div class="cash-sub">機器の仕入先・部品／部材の仕入先・外注先ごとの<b>発注額</b>を、年度（4月〜翌3月）別に集計します。年度は、仕入日（発注日）→支払月→案件の日付の順に判定します。「集計から外す」にした案件は含みません。</div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+      <select id="supFy"></select>
+      <select id="supCat"><option value="">全区分（機器・部品部材・外注）</option><option value="機器">機器のみ</option><option value="部品・部材">部品・部材のみ</option><option value="外注費">外注費のみ</option></select>
+      <select id="supBranch"></select>
+    </div>
+    <div id="supBody"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="btnSupCsv">📥 CSV</button>
+      <button class="btn btn-primary" id="btnSupClose">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="cashOverlay">
   <div class="modal cash-modal">
     <h2>💴 仕入・入金の見込み</h2>
@@ -2128,6 +2145,105 @@ async function openFySheets(){
   }
 }
 
+// ==== 発注先別の年度集計 ====
+// 機器の仕入先・部品／部材の仕入先・外注先ごとに、発注額を年度（4月〜翌3月）別に集計する。
+// 年度は、仕入日（発注日）→支払月→案件の日付の順に判定する。「集計から外す」の案件は含めない。
+let supView = null;   // CSV出力用：{ header, rows, total }
+function supplierLines(){
+  const out = [];
+  deals.forEach(d => {
+    if(isExcluded(d)) return;
+    [['機器', d.supplier, d.purchaseAmount, d.purchaseDate, d.billingMonth],
+     ['部品・部材', d.partsSupplier, d.partsAmount, d.partsDate, d.partsBillingMonth],
+     ['外注費', d.outsourceSupplier, d.outsourceAmount, d.outsourceDate, d.outsourceBillingMonth]].forEach(([cat, name, amtRaw, date, month]) => {
+      const amt = Number(amtRaw);
+      if(amtRaw === '' || amtRaw === null || amtRaw === undefined || isNaN(amt)) return;
+      let fy = null;
+      const dt = date ? new Date(date) : null;
+      if(dt && !isNaN(dt.getTime())) fy = fyOf(dt);
+      else {
+        const m = normMonth(month);
+        if(/^\d{4}-\d{2}$/.test(m)) fy = fyOf(new Date(Number(m.slice(0, 4)), Number(m.slice(5)) - 1, 1));
+        else { const bd = dealBaseDate(d); if(bd) fy = fyOf(bd); }
+      }
+      out.push({ cat, name: String(name || '').trim() || '（発注先未入力）', amt, fy: fy === null ? '不明' : fy, id: d.id, branch: d.branch });
+    });
+  });
+  return out;
+}
+function openSupplierPanel(){
+  const branches = branchList();
+  const sel = document.getElementById('supBranch');
+  sel.innerHTML = '<option value="">全拠点</option>' + branches.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
+  const lines = supplierLines();
+  const years = Array.from(new Set(lines.map(l => l.fy).filter(y => y !== '不明'))).sort((a, b) => a - b);
+  const fsel = document.getElementById('supFy');
+  fsel.innerHTML = '<option value="all">全年度（年度を横に並べる）</option>' + years.slice().reverse().map(y => `<option value="${y}">${y}年度${y === fyOf(new Date()) ? '（今年度）' : ''}</option>`).join('');
+  document.getElementById('supCat').value = '';
+  renderSupplierPanel();
+  document.getElementById('supOverlay').classList.add('open');
+}
+function renderSupplierPanel(){
+  const cat = document.getElementById('supCat').value;
+  const br = document.getElementById('supBranch').value;
+  const fyv = document.getElementById('supFy').value;
+  let lines = supplierLines().filter(l => (!cat || l.cat === cat) && (!br || l.branch === br));
+  const curFy = fyOf(new Date());
+  // 発注先ごとにまとめる（全角半角・空白の違いは同じ発注先として扱う。表示は一番多い書き方）
+  const groups = {};
+  lines.forEach(l => {
+    if(fyv !== 'all' && String(l.fy) !== fyv) return;
+    const k = pdfNorm(l.name) || l.name;
+    const g = groups[k] = groups[k] || { names: {}, cells: {}, cats: {}, ids: new Set(), total: 0 };
+    g.names[l.name] = (g.names[l.name] || 0) + 1;
+    g.cells[l.fy] = (g.cells[l.fy] || 0) + l.amt;
+    g.cats[l.cat] = (g.cats[l.cat] || 0) + l.amt;
+    g.ids.add(l.id); g.total += l.amt;
+  });
+  const list = Object.values(groups).map(g => Object.assign(g, { name: Object.keys(g.names).sort((a, b) => g.names[b] - g.names[a])[0] }))
+    .sort((a, b) => b.total - a.total);
+  const grand = list.reduce((s, g) => s + g.total, 0);
+  const allIds = new Set(); list.forEach(g => g.ids.forEach(i => allIds.add(i)));
+  const pct = g => grand ? Math.round(g.total / grand * 1000) / 10 + '%' : '－';
+  let header, rows, total;
+  if(fyv === 'all'){
+    const ys = Array.from(new Set(lines.map(l => l.fy))).sort((a, b) => (a === '不明') - (b === '不明') || a - b);
+    header = ['発注先'].concat(ys.map(y => y === '不明' ? '年度不明' : y + '年度'), ['合計', '件数', '構成比']);
+    rows = list.map(g => [g.name].concat(ys.map(y => g.cells[y] || 0), [g.total, g.ids.size, pct(g)]));
+    total = ['合計'].concat(ys.map(y => list.reduce((s, g) => s + (g.cells[y] || 0), 0)), [grand, allIds.size, grand ? '100%' : '－']);
+    var curCol = ys.indexOf(curFy) + 1;
+  } else {
+    header = ['発注先', '機器', '部品・部材', '外注費', '合計', '件数', '構成比'];
+    rows = list.map(g => [g.name, g.cats['機器'] || 0, g.cats['部品・部材'] || 0, g.cats['外注費'] || 0, g.total, g.ids.size, pct(g)]);
+    total = ['合計', 0, 1, 2].map((x, i) => i === 0 ? x : list.reduce((s, g) => s + (g.cats[['機器', '部品・部材', '外注費'][i - 1]] || 0), 0)).concat([grand, allIds.size, grand ? '100%' : '－']);
+    var curCol = -1;
+  }
+  supView = { header, rows, total, fyv };
+  const cell = (v, i, bold) => {
+    const isNum = typeof v === 'number';
+    const isCount = header[i] === '件数';
+    const txt = isNum ? (isCount ? v + '件' : (v ? fmtYen(v) : '－')) : escapeHtml(String(v));
+    return `<td class="${isNum || i === header.length - 1 ? 'num' : ''}" ${i === curCol ? 'style="background:#EEF2F7"' : ''}>${bold ? '<b>' + txt + '</b>' : txt}</td>`;
+  };
+  document.getElementById('supBody').innerHTML = rows.length
+    ? `<div class="cash-table-wrap" style="max-height:52vh; overflow:auto; margin-top:10px;"><table class="cash-table"><thead><tr>${header.map((h, i) => `<th ${i === curCol ? 'style="background:#EEF2F7"' : ''}>${escapeHtml(h)}</th>`).join('')}</tr></thead>
+       <tbody>${rows.map(r => '<tr>' + r.map((v, i) => cell(v, i)).join('') + '</tr>').join('')}</tbody>
+       <tfoot><tr>${total.map((v, i) => cell(v, i, true)).join('')}</tr></tfoot></table></div>
+       <div class="cash-note">件数は、その発注先に発注した案件の数です（同じ案件に機器と外注がある場合も、1件）。${lines.some(l => l.fy === '不明') ? '<br>仕入日・支払月・案件の日付のどれもない発注は、「年度不明」にまとめています。' : ''}</div>`
+    : '<div class="cash-note" style="margin-top:10px">該当する発注がありません。</div>';
+}
+document.getElementById('supCat').addEventListener('change', renderSupplierPanel);
+document.getElementById('supBranch').addEventListener('change', renderSupplierPanel);
+document.getElementById('supFy').addEventListener('change', renderSupplierPanel);
+document.getElementById('btnSupClose').addEventListener('click', () => document.getElementById('supOverlay').classList.remove('open'));
+document.getElementById('supOverlay').addEventListener('click', e => { if(e.target.id === 'supOverlay') e.target.classList.remove('open'); });
+document.getElementById('btnSupCsv').addEventListener('click', () => {
+  if(!supView || !supView.rows.length){ alert('出力できるデータがありません'); return; }
+  const cat = document.getElementById('supCat').value || '全区分', br = document.getElementById('supBranch').value || '全拠点';
+  downloadCsv('発注先別集計_' + (supView.fyv === 'all' ? '全年度' : supView.fyv + '年度') + '_' + cat + '_' + br + '_' + csvStamp() + '.csv',
+    [supView.header].concat(supView.rows, [supView.total]));
+});
+
 function visibleDeals(){
   const sq = parseSearchTerms(searchVal);
   const exTerms = normSearch(excludeVal).split(/[\s　]+/).filter(Boolean);
@@ -2300,6 +2416,7 @@ function render(){
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openAnalysisPanel()">📊 受注率・分析</button></div>
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openNamePanel()">🧹 表記ゆれ</button></div>
     ${(() => { const n = deals.filter(d => !boardFyMatch(d)).length; return n ? `<div class="s-item s-action"><button class="btn btn-ghost" onclick="boardFyVal='all'; lsSet(BOARD_FY_KEY, 'all'); populateBoardFy(); render();" title="年度の切替で非表示になっている案件を、すべて表示します">📆 他の年度${n}件を非表示中（全期間で表示）</button></div>` : ''; })()}
+    <div class="s-item s-action"><button class="btn btn-ghost" onclick="openSupplierPanel()" title="発注先ごとの発注額を、年度別に集計します">🏭 発注先別集計</button></div>
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openFySheets()" title="来年度などの年度シート（旭川_2027 など）を作ります">🗂 年度シート</button></div>
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openPdfImport()">📄 見積PDF</button></div>
     ${futureOccTargets().length ? `<div class="s-item s-action"><button class="btn btn-ghost" onclick="openFutureOcc()">📅 発生日が先の日付（${futureOccTargets().length}件）</button></div>` : ''}
