@@ -663,6 +663,17 @@
   </div>
 </div>
 
+<div class="overlay" id="ambOverlay">
+  <div class="modal pdf-modal" style="max-width:900px;">
+    <h2>どちらの会社か、案件ごとに直す</h2>
+    <div id="ambBody"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="btnAmbClose">閉じる</button>
+      <button class="btn btn-primary" id="btnAmbApply">選んだ内容で直す</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="cashOverlay">
   <div class="modal cash-modal">
     <h2>💴 仕入・入金の見込み</h2>
@@ -2152,6 +2163,24 @@ async function openFySheets(){
 // 発注先（仕入先・外注先）：機器・部品／部材・外注の発注額を、発注先ごと・年度別に集計する。年度は、仕入日→支払月→案件の日付の順。
 // どちらも「集計から外す」の案件は含めない。
 let supView = null;   // CSV出力用：{ header, rows, total, fyv }
+// 短い名前だけでは、どの会社か決められない名前（例：「パナ」「パナソニック」「ダイキン」）。
+// 集計では「（どちらか不明）」として別の行に出し、案件ごとに正式名へ直す（「案件ごとに直す」）。
+const AMBIGUOUS_NAMES = [
+  { id: 'pana', label: 'パナソニック', shorts: ['パナ', 'パナソニック'],
+    candidates: ['パナソニックHVAC＆CCシステムズ株式会社', 'パナソニック環境エンジニアリング株式会社'] },
+  { id: 'daikin', label: 'ダイキン', shorts: ['ダイキン'],
+    candidates: ['ダイキンHVAC', 'ダイキン工業'] },
+];
+function ambRuleOf(name){
+  const n = pdfNorm(name);
+  return n ? (AMBIGUOUS_NAMES.find(r => r.shorts.some(x => pdfNorm(x) === n)) || null) : null;
+}
+// 集計のグルーピング：会社が絞れない名前は、ルールごとに1行にまとめる
+function aggGroupOf(name){
+  const r = ambRuleOf(name);
+  if(r) return { key: '#amb:' + r.id, name: r.label + '（どちらか不明）', amb: r };
+  return { key: pdfNorm(name) || name, name, amb: null };
+}
 function supplierLines(){
   const out = [];
   deals.forEach(d => {
@@ -2169,7 +2198,7 @@ function supplierLines(){
         if(/^\d{4}-\d{2}$/.test(m)) fy = fyOf(new Date(Number(m.slice(0, 4)), Number(m.slice(5)) - 1, 1));
         else { const bd = dealBaseDate(d); if(bd) fy = fyOf(bd); }
       }
-      out.push({ cat, name: String(name || '').trim() || '（発注先未入力）', amt, fy: fy === null ? '不明' : fy, id: d.id, branch: d.branch });
+      out.push({ cat, name: String(name || '').trim() || '（発注先未入力）', amt, fy: fy === null ? '不明' : fy, id: d.id, branch: d.branch, deal: d, field: ({ '機器': 'supplier', '部品・部材': 'partsSupplier', '外注費': 'outsourceSupplier' })[cat] });
     });
   });
   return out;
@@ -2183,7 +2212,7 @@ function customerLines(){
     const qa = Number(d.quoteAmount);
     out.push({
       name: String(d.customerName || '').trim() || '（顧客名未入力）',
-      fy: bd ? fyOf(bd) : '不明', id: d.id, branch: d.branch,
+      fy: bd ? fyOf(bd) : '不明', id: d.id, branch: d.branch, deal: d,
       won: ANA_WON.indexOf(st) >= 0, lost: st === '失注',
       amt: amountOf(d) || 0,
       quote: (d.quoteAmount !== '' && d.quoteAmount !== null && d.quoteAmount !== undefined && !isNaN(qa)) ? qa : 0,
@@ -2232,6 +2261,29 @@ function renderSupplierPanel(){
        <tfoot><tr>${view.total.map((v, i) => cell(v, i, true)).join('')}</tr></tfoot></table></div>
        <div class="cash-note">${view.note}</div>`
     : '<div class="cash-note" style="margin-top:10px">該当するデータがありません。</div>';
+  const amb = ambItems();
+  if(amb.length){
+    document.getElementById('supBody').insertAdjacentHTML('beforeend',
+      `<div class="pdf-warn" style="margin-top:10px">どちらの会社か決められない名前（${Array.from(new Set(amb.map(x => x.rule.label))).join('・')}）の案件が<b>${amb.length}件</b>あり、「（どちらか不明）」の行にまとめています。
+       <button class="btn btn-ghost btn-mini" onclick="openAmbFix()">案件ごとに正式名へ直す</button></div>`);
+  }
+}
+// どちらの会社か決められない名前の案件（いまの表示範囲：発注者なら顧客名、発注先なら仕入先・外注先）
+function ambItems(){
+  const br = document.getElementById('supBranch').value;
+  const cust = supTarget() === 'customer';
+  const seen = new Set();
+  const out = [];
+  (cust ? customerLines() : supplierLines()).forEach(l => {
+    if(br && l.branch !== br) return;
+    const rule = ambRuleOf(l.name);
+    if(!rule) return;
+    const key = l.id + '|' + (cust ? 'customerName' : l.field);
+    if(seen.has(key)) return;
+    seen.add(key);
+    out.push({ rule, deal: l.deal, field: cust ? 'customerName' : l.field, cat: cust ? '顧客名' : l.cat, current: l.name });
+  });
+  return out;
 }
 // 発注者（顧客）の表
 function buildCustomerView(){
@@ -2244,9 +2296,10 @@ function buildCustomerView(){
   lines.forEach(l => {
     if(fyv !== 'all' && String(l.fy) !== fyv) return;
     years.add(l.fy);
-    const k = pdfNorm(l.name) || l.name;
+    const gk = aggGroupOf(l.name);
+    const k = gk.key;
     const g = groups[k] = groups[k] || { names: {}, by: {}, ids: new Set() };
-    g.names[l.name] = (g.names[l.name] || 0) + 1;
+    g.names[gk.name] = (g.names[gk.name] || 0) + 1;
     const c = g.by[l.fy] = g.by[l.fy] || { wonAmt: 0, wonN: 0, lostN: 0, quoteAmt: 0, quoteN: 0, openAmt: 0, openN: 0 };
     if(l.won){ c.wonAmt += l.amt; c.wonN++; }
     else if(l.lost){ c.lostN++; }
@@ -2289,9 +2342,10 @@ function buildSupplierView(){
   const groups = {};
   lines.forEach(l => {
     if(fyv !== 'all' && String(l.fy) !== fyv) return;
-    const k = pdfNorm(l.name) || l.name;
+    const gk = aggGroupOf(l.name);
+    const k = gk.key;
     const g = groups[k] = groups[k] || { names: {}, cells: {}, cats: {}, ids: new Set(), total: 0 };
-    g.names[l.name] = (g.names[l.name] || 0) + 1;
+    g.names[gk.name] = (g.names[gk.name] || 0) + 1;
     g.cells[l.fy] = (g.cells[l.fy] || 0) + l.amt;
     g.cats[l.cat] = (g.cats[l.cat] || 0) + l.amt;
     g.ids.add(l.id); g.total += l.amt;
@@ -2315,6 +2369,59 @@ function buildSupplierView(){
   const total = ['合計'].concat(cats.map(c => list.reduce((s, g) => s + (g.cats[c] || 0), 0)), [grand, allIds.size, grand ? '100%' : '－']);
   return { header, rows, total, fyv, curCol: -1, note };
 }
+let ambList = [];
+function openAmbFix(){
+  ambList = ambItems();
+  const bulk = AMBIGUOUS_NAMES.filter(r => ambList.some(x => x.rule.id === r.id)).map(r =>
+    `<div style="margin:6px 0"><b>${escapeHtml(r.label)}</b>：` + r.candidates.map((c, i) =>
+      `<button class="btn btn-ghost btn-mini" onclick="ambBulk('${r.id}', ${i})">すべて「${escapeHtml(c)}」にする</button>`).join(' ') + '</div>').join('');
+  const rows = ambList.map((x, i) => `<tr>
+      <td>${escapeHtml(x.deal.siteName || x.deal.projectName || '名称なし')}<span class="mo">${escapeHtml(x.deal.branch)}${x.deal.no !== undefined && x.deal.no !== '' ? ' No.' + escapeHtml(String(x.deal.no)) : ''}・${escapeHtml(x.cat)}</span></td>
+      <td>${escapeHtml(x.current)}</td>
+      <td><select id="amb-${i}" data-rule="${x.rule.id}"><option value="">（このまま）</option>${x.rule.candidates.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}</select></td></tr>`).join('');
+  document.getElementById('ambBody').innerHTML = ambList.length
+    ? `<div class="cash-sub">案件ごとに、正式な会社名を選んでください。選んだ案件の${supTarget() === 'customer' ? '顧客名（元のシートのセル）' : '仕入先・外注先（追加情報シート）'}が書き換わります。「（このまま）」の案件は、変えません。</div>
+       <div>${bulk}</div>
+       <div class="cash-table-wrap cash-detail" style="max-height:48vh; overflow:auto;"><table class="cash-table"><thead><tr><th>案件</th><th>いまの名前</th><th>正式名</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    : '<div class="cash-sub">該当する案件はありません。</div>';
+  document.getElementById('btnAmbApply').disabled = !ambList.length;
+  document.getElementById('ambOverlay').classList.add('open');
+}
+function ambBulk(ruleId, idx){
+  const r = AMBIGUOUS_NAMES.find(x => x.id === ruleId);
+  ambList.forEach((x, i) => { if(x.rule.id === ruleId){ document.getElementById('amb-' + i).value = r.candidates[idx]; } });
+}
+document.getElementById('btnAmbClose').addEventListener('click', () => document.getElementById('ambOverlay').classList.remove('open'));
+document.getElementById('btnAmbApply').addEventListener('click', async () => {
+  const sel = ambList.map((x, i) => ({ x, to: document.getElementById('amb-' + i).value })).filter(y => y.to);
+  if(!sel.length){ alert('直す案件が選ばれていません'); return; }
+  if(!confirm(sel.length + '件の名前を、選んだ正式名に書き換えます。よろしいですか？')) return;
+  const btn = document.getElementById('btnAmbApply');
+  btn.disabled = true;
+  let ok = 0, conflict = 0, failed = 0;
+  for(let k = 0; k < sel.length; k++){
+    btn.textContent = '直しています… ' + (k + 1) + '/' + sel.length;
+    const { x, to } = sel[k], d = x.deal;
+    try{
+      let res;
+      if(x.field === 'customerName'){
+        res = await gasPost('deal_core_update', { id: d.id, branch: d.branch, sheet: d.sheet, rowNum: d.rowNum, origDealNo: d.dealNo,
+          customerName: to, changedCore: ['customerName'], baseCore: { customerName: d.customerName }, force: false });
+      } else {
+        res = await gasPost('deal_extra_upsert', { id: d.id, [x.field]: to, baseUpdatedAt: d.updatedAt || '', force: false });
+      }
+      if(res.status === 'success') ok++; else if(res.status === 'conflict') conflict++; else failed++;
+    }catch(e){ failed++; }
+  }
+  btn.textContent = '選んだ内容で直す';
+  await loadDeals({ force: true });
+  let msg = '✅ ' + ok + '件を直しました';
+  if(conflict) msg += '／' + conflict + '件は他の人が先に更新していたため見送り';
+  if(failed) msg += '／' + failed + '件は直せませんでした';
+  showToast(msg, (conflict || failed) ? 'err' : undefined);
+  renderSupplierPanel();
+  openAmbFix();
+});
 ['supTarget'].forEach(id => document.getElementById(id).addEventListener('change', () => { supFyOptions(); renderSupplierPanel(); }));
 ['supCat', 'supMetric', 'supBranch', 'supFy'].forEach(id => document.getElementById(id).addEventListener('change', renderSupplierPanel));
 document.getElementById('btnSupClose').addEventListener('click', () => document.getElementById('supOverlay').classList.remove('open'));
