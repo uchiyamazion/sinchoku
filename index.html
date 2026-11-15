@@ -366,6 +366,9 @@
   #btnNoEmph.on{ background:var(--navy); color:#fff; border-color:var(--navy); }
   #noJump{ width:84px; }
   #boardFy{ width:132px; }
+  .hr-break{ display:none; }
+  #summaryBar .s-toggle{ display:none; }
+  #summaryBar .lbl-open{ display:none; }
   #boardFy.alt{ border-color:var(--navy); font-weight:700; background:#EEF2F7; }
   #noJumpBranch{ width:104px; }
   .modal .branch-tag{ display:inline-block; font-size:10.5px; font-weight:600; color:var(--navy); background:var(--navy-soft); padding:1px 7px; border-radius:8px; margin-bottom:8px; }
@@ -395,10 +398,15 @@
 
   @media (max-width: 700px){
     body{ background-size: 20px 20px; }
-    header{ flex-direction:column; align-items:stretch; padding:12px 14px; gap:8px; }
+    header{ flex-direction:column; align-items:stretch; padding:12px 14px; gap:8px; position:static; }
     header h1{ font-size:15.5px; }
-    .header-right{ width:100%; }
+    /* ヘッダーの操作は3段：①年度＋No強調 ②拠点＋No ③検索＋絞り込み＋新規 */
+    .header-right{ width:100%; flex-wrap:wrap; row-gap:8px; }
+    .hr-break{ display:block; flex-basis:100%; height:0; }
+    .header-right #boardFy, .header-right #noJumpBranch{ flex:1 1 0; min-width:0; width:auto; }
+    .header-right #noJump{ flex:0 0 96px; width:96px; }
     .header-right #searchBox{ flex:1; min-width:0; width:auto; }
+    .header-right select, .header-right input{ font-size:16px; }   /* 入力欄の拡大（ズーム）を防ぐ */
     .header-right .btn{ flex-shrink:0; padding:9px 12px; font-size:12.5px; }
 
     .filter-panel{ padding:14px; }
@@ -415,6 +423,20 @@
 
     #summaryBar{ margin:12px 14px 0; padding:10px 12px; gap:12px; }
     #summaryBar .s-val{ font-size:13px; }
+    /* ツール（集計・分析・取り込みなどのボタン）は、「🛠 ツール」を押したときだけ出す */
+    #summaryBar .s-toggle{ display:flex; flex-basis:100%; }
+    #summaryBar .s-toggle .btn{ width:100%; }
+    #summaryBar .s-action{ display:none; flex:1 1 44%; }
+    #summaryBar .s-action .btn{ width:100%; padding:10px 8px; font-size:12.5px; }
+    #summaryBar.actions-open .s-action{ display:flex; }
+    #summaryBar.actions-open .lbl-closed{ display:none; }
+    #summaryBar.actions-open .lbl-open{ display:inline; }
+
+    /* 集計・分析のパネル：選択欄は幅いっぱい、表は横にスクロールし、1列目（名前）は左に固定 */
+    .modal select{ max-width:100%; }
+    #supOverlay select{ flex:1 1 46%; min-width:0; }
+    .cash-table{ font-size:12px; }
+    .cash-table th:first-child, .cash-table td:first-child{ position:sticky; left:0; background:#fff; z-index:1; box-shadow:1px 0 0 var(--line); }
     #conflictBanner{ margin:12px 14px 0; font-size:12px; }
 
     .modal{ padding:18px 16px 16px; max-width:100%; }
@@ -487,8 +509,10 @@
   <div class="header-right">
     <select id="boardFy" title="表示する年度（4月〜翌年3月）。進行中の案件は、年度をまたいで繰り越して表示します"><option value="cur">今年度</option></select>
     <button class="btn btn-ghost" id="btnNoEmph" title="カードのNoを大きく目立たせます（発表のときなど）">No強調</button>
+    <span class="hr-break"></span>
     <select id="noJumpBranch" title="拠点を選ぶと、その拠点のシートのNoだけを探します"><option value="">全拠点</option></select>
     <input type="search" id="noJump" inputmode="numeric" placeholder="No." title="シートのNoで探す（全シートから該当のNoを表示）" autocomplete="off">
+    <span class="hr-break"></span>
     <input type="text" id="searchBox" placeholder="🔍 フリー検索（スペースでAND／-語で除外）">
     <button class="btn btn-ghost" id="btnToggleFilters">絞り込み <span id="filterCount" class="filter-count-badge" style="display:none;"></span></button>
     <button class="btn btn-primary" id="btnNew">＋ 新規</button>
@@ -2603,6 +2627,7 @@ function render(){
     <div class="s-item"><span class="s-label">見積金額合計</span><span class="s-val">${fmtYen(totalQuote)}</span></div>
     <div class="s-item"><span class="s-label">確定金額合計</span><span class="s-val">${fmtYen(totalConfirmed)}</span></div>
     ${unreadCount ? `<div class="s-item"><span class="s-label">現在状況の更新（未確認）</span><span class="s-val s-warn">${unreadCount}件<button class="btn btn-ghost btn-mini" onclick="markAllSeen()">すべて既読にする</button></span></div>` : ''}
+    <div class="s-item s-toggle"><button class="btn btn-ghost" onclick="document.getElementById('summaryBar').classList.toggle('actions-open')"><span class="lbl-closed">🛠 ツール ▾</span><span class="lbl-open">🛠 ツール ▴</span></button></div>
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openCashPanel()">💴 仕入・入金見込</button></div>
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openAnalysisPanel()">📊 受注率・分析</button></div>
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openNamePanel()">🧹 表記ゆれ</button></div>
