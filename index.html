@@ -248,6 +248,23 @@
   .cash-table tr.cur td{ background:var(--navy-soft); font-weight:700; }
   .cash-table td.neg{ color:var(--red); }
   .cash-table tfoot td{ font-weight:700; border-top:2px solid var(--line); border-bottom:none; }
+  .cash-table tr.drill{ cursor:pointer; }
+  .cash-table tr.drill:hover td{ background:#F0F5FA; }
+  .cash-table tr.drill.open td{ background:var(--navy-soft); }
+  .cash-table .dr-ar{ display:inline-block; width:12px; color:var(--ink-soft); font-size:10px; }
+  .cash-table tr.drill-detail td{ text-align:left; white-space:normal; background:#FAFBFD; padding:10px 12px; position:static !important; box-shadow:none !important; }
+  .dr-box{ position:sticky; left:0; width:min(860px, calc(100vw - 90px)); }
+  .dr-sum{ font-size:12px; margin-bottom:8px; line-height:1.7; }
+  .dr-chips{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+  .dr-chip{ background:#fff; border:1px solid var(--line); border-radius:6px; padding:4px 8px; font-size:11.5px; }
+  .dr-chip b{ font-family:'IBM Plex Mono',monospace; }
+  .dr-list{ width:100%; border-collapse:collapse; font-size:12px; }
+  .dr-list th, .dr-list td{ padding:5px 8px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; }
+  .dr-list th{ font-size:10.5px; color:var(--ink-soft); font-weight:600; background:#F5F8FB; }
+  .dr-list td.n{ text-align:right; font-family:'IBM Plex Mono',monospace; }
+  .dr-list tr.dr-deal{ cursor:pointer; }
+  .dr-list tr.dr-deal:hover td{ background:#EEF2F7; }
+  .dr-hint{ font-size:10.5px; color:var(--ink-soft); margin-top:4px; }
   .cash-box{ padding:10px 12px; background:var(--grey-soft); border-radius:8px; font-size:12.5px; line-height:1.8; color:var(--ink); }
   .cash-box .cb-title{ font-weight:700; margin-bottom:2px; }
   .cash-box .cb-net{ margin-top:4px; padding-top:4px; border-top:1px solid var(--line); font-weight:700; }
@@ -2274,16 +2291,16 @@ function renderSupplierPanel(){
   const fmtN = (v, h) => typeof v !== 'number' ? escapeHtml(String(v)) : ((view.countAll || /件数/.test(h)) ? v + '件' : (v ? fmtYen(v) : '－'));
   const curFy = fyOf(new Date());
   const curCol = view.curCol === undefined ? -1 : view.curCol;
-  const cell = (v, i, bold) => {
+  const cell = (v, i, bold, pre) => {
     const isNum = typeof v === 'number';
     const txt = fmtN(v, view.header[i]);
-    return `<td class="${isNum || i === view.header.length - 1 ? 'num' : ''}" ${i === curCol ? 'style="background:#EEF2F7"' : ''}>${bold ? '<b>' + txt + '</b>' : txt}</td>`;
+    return `<td class="${isNum || i === view.header.length - 1 ? 'num' : ''}" ${i === curCol ? 'style="background:#EEF2F7"' : ''}>${pre || ''}${bold ? '<b>' + txt + '</b>' : txt}</td>`;
   };
   document.getElementById('supBody').innerHTML = view.rows.length
     ? `<div class="cash-table-wrap" style="max-height:52vh; overflow:auto; margin-top:10px;"><table class="cash-table"><thead><tr>${view.header.map((h, i) => `<th ${i === curCol ? 'style="background:#EEF2F7"' : ''}>${escapeHtml(h)}</th>`).join('')}</tr></thead>
-       <tbody>${view.rows.map(r => '<tr>' + r.map((v, i) => cell(v, i)).join('') + '</tr>').join('')}</tbody>
+       <tbody>${view.rows.map((r, ri) => '<tr' + (view.keys ? ` class="drill" data-ri="${ri}"` : '') + '>' + r.map((v, i) => cell(v, i, false, i === 0 && view.keys ? '<span class="dr-ar">▸</span>' : '')).join('') + '</tr>').join('')}</tbody>
        <tfoot><tr>${view.total.map((v, i) => cell(v, i, true)).join('')}</tr></tfoot></table></div>
-       <div class="cash-note">${view.note}</div>`
+       <div class="cash-note">${view.note}${view.keys ? '<br>行をクリックすると、その発注者の内訳（ステータス別・拠点別・案件一覧）が開きます。' : ''}</div>`
     : '<div class="cash-note" style="margin-top:10px">該当するデータがありません。</div>';
   const amb = ambItems();
   if(amb.length){
@@ -2322,7 +2339,7 @@ function buildCustomerView(){
     years.add(l.fy);
     const gk = aggGroupOf(l.name);
     const k = gk.key;
-    const g = groups[k] = groups[k] || { names: {}, by: {}, ids: new Set() };
+    const g = groups[k] = groups[k] || { key: k, names: {}, by: {}, ids: new Set() };
     g.names[gk.name] = (g.names[gk.name] || 0) + 1;
     const c = g.by[l.fy] = g.by[l.fy] || { wonAmt: 0, wonN: 0, lostN: 0, quoteAmt: 0, quoteN: 0, openAmt: 0, openN: 0 };
     if(l.won){ c.wonAmt += l.amt; c.wonN++; }
@@ -2343,9 +2360,11 @@ function buildCustomerView(){
     const grand = list.reduce((s, g) => s + g.total, 0);
     const header = ['発注者（顧客）'].concat(ys.map(y => y === '不明' ? '年度不明' : y + '年度'), ['合計', '構成比']);
     const pct = g => grand ? Math.round(g.total / grand * 1000) / 10 + '%' : '－';
-    const rows = list.filter(g => g.total).map(g => [g.name].concat(ys.map(y => valOf(g, y)), [g.total, pct(g)]));
+    const shown = list.filter(g => g.total);
+    const rows = shown.map(g => [g.name].concat(ys.map(y => valOf(g, y)), [g.total, pct(g)]));
+    const keys = shown.map(g => g.key);
     const total = ['合計'].concat(ys.map(y => list.reduce((s, g) => s + valOf(g, y), 0)), [grand, grand ? '100%' : '－']);
-    return { header, rows, total, fyv, countAll: metric === 'wonN', curCol: ys.indexOf(fyOf(new Date())) + 1, note: lab + 'を、年度ごとに並べています。' + note };
+    return { header, rows, keys, total, fyv, countAll: metric === 'wonN', curCol: ys.indexOf(fyOf(new Date())) + 1, note: lab + 'を、年度ごとに並べています。' + note };
   }
   const header = ['発注者（顧客）', '受注額', '受注件数', '失注件数', '受注率（件数）', '見積額', '進行中の見積額', '構成比（受注額）'];
   list.sort((a, b) => sum(b, 'wonAmt') - sum(a, 'wonAmt') || sum(b, 'quoteAmt') - sum(a, 'quoteAmt'));
@@ -2353,9 +2372,10 @@ function buildCustomerView(){
   const rate = (w, l) => (w + l) ? Math.round(w / (w + l) * 100) + '%' : '－';
   const row = g => { const w = sum(g, 'wonN'), l = sum(g, 'lostN'); return [g.name, sum(g, 'wonAmt'), w, l, rate(w, l), sum(g, 'quoteAmt'), sum(g, 'openAmt'), grand ? Math.round(sum(g, 'wonAmt') / grand * 1000) / 10 + '%' : '－']; };
   const rows = list.map(row);
+  const keys = list.map(g => g.key);
   const tw = list.reduce((s, g) => s + sum(g, 'wonN'), 0), tl = list.reduce((s, g) => s + sum(g, 'lostN'), 0);
   const total = ['合計', grand, tw, tl, rate(tw, tl), list.reduce((s, g) => s + sum(g, 'quoteAmt'), 0), list.reduce((s, g) => s + sum(g, 'openAmt'), 0), grand ? '100%' : '－'];
-  return { header, rows, total, fyv, curCol: -1, note };
+  return { header, rows, keys, total, fyv, curCol: -1, note };
 }
 // 発注先（仕入先・外注先）の表
 function buildSupplierView(){
@@ -2393,6 +2413,55 @@ function buildSupplierView(){
   const total = ['合計'].concat(cats.map(c => list.reduce((s, g) => s + (g.cats[c] || 0), 0)), [grand, allIds.size, grand ? '100%' : '－']);
   return { header, rows, total, fyv, curCol: -1, note };
 }
+// ---- 発注者の内訳（行クリックで展開） ----
+let drillDeals = [];
+function drillDateStr(d){ const b = dealBaseDate(d); return b ? b.getFullYear() + '/' + (b.getMonth() + 1) + '/' + b.getDate() : ''; }
+function buildCustomerDrill(key){
+  const br = document.getElementById('supBranch').value;
+  const fyv = document.getElementById('supFy').value;
+  const ls = customerLines().filter(l => (!br || l.branch === br) && aggGroupOf(l.name).key === key);
+  const inFy = l => fyv === 'all' || String(l.fy) === fyv;
+  const target = ls.filter(inFy);
+  if(!target.length) return '<div class="dr-box">該当する案件がありません。</div>';
+  const wonN = target.filter(l => l.won).length, lostN = target.filter(l => l.lost).length;
+  const wonAmt = target.filter(l => l.won).reduce((s, l) => s + l.amt, 0);
+  const quoteAmt = target.reduce((s, l) => s + l.quote, 0);
+  const sum = `<div class="dr-sum"><b>${target.length}件</b>（${fyv === 'all' ? '全年度' : fyv + '年度'}${br ? '・' + escapeHtml(br) : '・全拠点'}）　受注 ${wonN}件 ${fmtYen(wonAmt) || '¥0'}　／　失注 ${lostN}件　／　見積額合計 ${fmtYen(quoteAmt) || '¥0'}</div>`;
+  const chip = (label, arr) => arr.length ? `<span class="dr-chip">${escapeHtml(label)} <b>${arr.length}件</b> ${fmtYen(arr.reduce((s, l) => s + (l.amt || l.quote || 0), 0)) || '¥0'}</span>` : '';
+  const stOf = l => effStatus(l.deal) || '未設定';
+  const stChips = ['未設定', '見積提出済', '受注', '工事中', '完了', '失注'].map(st => chip(st, target.filter(l => stOf(l) === st))).join('');
+  let brChips = '';
+  if(!br){
+    const bs = Array.from(new Set(target.map(l => l.branch)));
+    brChips = '<div class="dr-chips">' + bs.map(b => chip(b, target.filter(l => l.branch === b))).join('') + '</div>';
+  }
+  const sorted = target.slice().sort((a, b) => {
+    const da = dealBaseDate(a.deal), db = dealBaseDate(b.deal);
+    return (db ? db.getTime() : 0) - (da ? da.getTime() : 0);
+  });
+  const base = drillDeals.length;
+  sorted.forEach(l => drillDeals.push(l.deal));
+  const rows = sorted.map((l, i) => {
+    const d = l.deal, cf = d.confirmedAmount;
+    return `<tr class="dr-deal" onclick="openModal(drillDeals[${base + i}])"><td>${escapeHtml(d.branch || '')}${d.no !== undefined && d.no !== '' ? ' No.' + escapeHtml(String(d.no)) : ''}</td><td>${escapeHtml(d.siteName || d.projectName || '名称なし')}</td><td>${escapeHtml(stOf(l))}</td><td class="n">${l.quote ? fmtYen(l.quote) : '－'}</td><td class="n">${cf !== '' && cf != null && !isNaN(cf) ? fmtYen(cf) : '－'}</td><td>${escapeHtml(drillDateStr(d))}</td></tr>`;
+  }).join('');
+  return `<div class="dr-box">${sum}<div class="dr-chips">${stChips}</div>${brChips}
+    <div class="cash-table-wrap" style="max-height:30vh; overflow:auto;"><table class="dr-list"><thead><tr><th>拠点・No</th><th>現場名・案件名</th><th>ステータス</th><th>見積額</th><th>確定額</th><th>基準日</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="dr-hint">案件の行をクリックすると、案件詳細が開きます。</div></div>`;
+}
+document.getElementById('supBody').addEventListener('click', e => {
+  const tr = e.target.closest && e.target.closest('tr.drill');
+  if(!tr || !supView || !supView.keys) return;
+  const next = tr.nextElementSibling;
+  if(next && next.classList.contains('drill-detail')){
+    next.remove(); tr.classList.remove('open'); tr.querySelector('.dr-ar').textContent = '▸';
+    return;
+  }
+  const key = supView.keys[Number(tr.dataset.ri)];
+  if(key === undefined) return;
+  tr.classList.add('open'); tr.querySelector('.dr-ar').textContent = '▾';
+  tr.insertAdjacentHTML('afterend', `<tr class="drill-detail"><td colspan="${supView.header.length}">${buildCustomerDrill(key)}</td></tr>`);
+});
 let ambList = [];
 function openAmbFix(){
   ambList = ambItems();
