@@ -891,6 +891,7 @@
       <div class="field"><label>外注費 発注・請求日</label><input type="date" id="f-outsourceDate"></div>
       <div class="field"><label>外注費 金額（円）</label><input type="number" id="f-outsourceAmount"></div>
       <div class="field"><label>外注費 支払い月</label><input type="month" id="f-outsourceBillingMonth"><span class="field-hint" id="outsourcePayMonthHint"></span></div>
+      <div class="field"><label>注文書</label><select id="f-orderDoc"><option value="">未受領</option><option value="1">受領済 ✓</option></select></div>
       <div class="field full"><label>入金条件（注文書の内容）</label><input id="f-paymentTerms" placeholder="例：月末締め翌月末払い"></div>
       <div class="field"><label>入金予定月</label><input type="month" id="f-receiptMonth"></div>
       <div class="field"><label>前入金額（円）</label><input type="number" id="f-advanceAmount"></div>
@@ -976,6 +977,12 @@ function payMonthOfOutsource(d){ return payMonthOf({ billingMonth: d.outsourceBi
 function advanceOf(d){
   const n = Number(d.advanceAmount);
   return (d.advanceAmount !== '' && d.advanceAmount != null && !isNaN(n) && n > 0) ? n : 0;
+}
+// 注文書の受領チェック：受領済は緑、受注・工事中でまだ未受領なら黄色で知らせる
+function orderDocBadge(d){
+  if(String(d.orderDoc) === '1') return '<span class="badge b-green">注文書 ✓</span>';
+  const st = effStatus(d);
+  return (st === '受注' || st === '工事中') ? '<span class="badge b-amber" title="注文書を受け取ったら、案件詳細で「受領済」にしてください">注文書未</span>' : '';
 }
 function purchaseLineHtml(d){
   const hasAmt = d.purchaseAmount !== '' && d.purchaseAmount != null;
@@ -3154,6 +3161,7 @@ function renderCard(d, hasConflict, justUpdated){
       ${staleBadge(d)}
       ${quoteExpiryBadge(d)}
       ${completenessBadge(d)}
+      ${orderDocBadge(d)}
     </div>
     <div class="row mono" style="color:var(--ink-soft); font-size:10.5px;">
       <span>${dateLine}</span>
@@ -3306,7 +3314,7 @@ document.getElementById('toggleLost').addEventListener('click', () => {
 const overlay = document.getElementById('overlay');
 const BRANCHES = ['営業部','営業部（ビルメン）','１課','２課','３課','函館','旭川'];
 const coreFields = ['dealNo','assignee','customerName','source','siteName','projectName','summary','occurredDate','rank','quoteAmount','confirmedAmount','expectedOrderMonth','profitRate','currentStatus','pendingIssue'];
-const editFields = ['status','quoteDate','lostReason','winFactor','constructionStart','constructionEnd','supplier','purchaseDate','purchaseAmount','billingMonth','paymentTerms','receiptMonth','advanceAmount','advanceMonth','nextActionDate','nextActionNote','excluded','partsSupplier','partsDate','partsAmount','partsBillingMonth','outsourceSupplier','outsourceDate','outsourceAmount','outsourceBillingMonth'];
+const editFields = ['status','quoteDate','lostReason','winFactor','constructionStart','constructionEnd','supplier','purchaseDate','purchaseAmount','billingMonth','paymentTerms','receiptMonth','advanceAmount','advanceMonth','nextActionDate','nextActionNote','excluded','orderDoc','partsSupplier','partsDate','partsAmount','partsBillingMonth','outsourceSupplier','outsourceDate','outsourceAmount','outsourceBillingMonth'];
 let currentDeal = null;
 let isNewMode = false;
 let modalInitial = {};

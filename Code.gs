@@ -73,7 +73,7 @@ const EXTRA_HEADERS = [
   'nextActionDate', 'nextActionNote', 'excluded',
   'partsSupplier', 'partsDate', 'partsAmount', 'partsBillingMonth',
   'outsourceSupplier', 'outsourceDate', 'outsourceAmount', 'outsourceBillingMonth',
-  'orderedAt',
+  'orderedAt', 'orderDoc',
   'updatedAt'
 ];
 
@@ -311,6 +311,7 @@ function dealList() {
       nextActionDate: extra.nextActionDate || '',
       nextActionNote: extra.nextActionNote || '',
       excluded: extra.excluded ? '1' : '',
+      orderDoc: extra.orderDoc ? '1' : '',
       partsSupplier: extra.partsSupplier || '',
       partsDate: extra.partsDate || '',
       partsAmount: extra.partsAmount || '',
