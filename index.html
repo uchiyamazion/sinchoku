@@ -685,6 +685,17 @@
   </div>
 </div>
 
+<div class="overlay" id="ordOverlay">
+  <div class="modal pdf-modal" style="max-width:960px;">
+    <h2>📅 受注日の補正</h2>
+    <div id="ordBody"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="btnOrdClose">閉じる</button>
+      <button class="btn btn-primary" id="btnOrdApply">チェックした案件の受注日を保存</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="supOverlay">
   <div class="modal pdf-modal" style="max-width:960px;">
     <h2 id="supTitle">年度別集計</h2>
@@ -891,6 +902,7 @@
       <div class="field"><label>外注費 発注・請求日</label><input type="date" id="f-outsourceDate"></div>
       <div class="field"><label>外注費 金額（円）</label><input type="number" id="f-outsourceAmount"></div>
       <div class="field"><label>外注費 支払い月</label><input type="month" id="f-outsourceBillingMonth"><span class="field-hint" id="outsourcePayMonthHint"></span></div>
+      <div class="field"><label>受注日（年度の基準）</label><input type="date" id="f-orderedAt"><span class="field-hint">受注・工事中・完了の案件で、集計やボードの年度を決める日です。空欄なら、受注系に切り替えた日が自動で入ります</span></div>
       <div class="field"><label>注文書</label><select id="f-orderDoc"><option value="">未受領</option><option value="1">受領済 ✓</option></select></div>
       <div class="field full"><label>入金条件（注文書の内容）</label><input id="f-paymentTerms" placeholder="例：月末締め翌月末払い"></div>
       <div class="field"><label>入金予定月</label><input type="month" id="f-receiptMonth"></div>
@@ -2712,6 +2724,7 @@ function render(){
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openFySheets()" title="来年度などの年度シート（旭川_2027 など）を作ります">🗂 年度シート</button></div>
     <div class="s-item s-action"><button class="btn btn-ghost" onclick="openPdfImport()">📄 見積PDF</button></div>
     ${futureOccTargets().length ? `<div class="s-item s-action"><button class="btn btn-ghost" onclick="openFutureOcc()">📅 発生日が先の日付（${futureOccTargets().length}件）</button></div>` : ''}
+    ${orderedAtTargets().length ? `<div class="s-item s-action"><button class="btn btn-ghost" onclick="openOrderedAtFix()" title="受注日が未入力の案件を一覧で確認して、受注日を入れます">📅 受注日の補正（${orderedAtTargets().length}件）</button></div>` : ''}
     ${bulkCompleteTargets().length ? `<div class="s-item s-action"><button class="btn btn-ghost" onclick="openBulkComplete()">✅ 確定金額あり→完了（${bulkCompleteTargets().length}件）</button></div>` : ''}
   `;
 
@@ -3080,6 +3093,80 @@ document.getElementById('btnFutApply').addEventListener('click', async () => {
   openFutureOcc();
 });
 
+// ==== 受注日の補正 ====
+// 受注日（orderedAt）は、年度の判定やボードの年度切替の基準になる。
+// 受注日がまだ入っていない 受注・工事中・完了 の案件は、受注予定月→見積日→発生日の順で年度を仮判定している。
+// 一覧で確認しながら、正しい受注日を入れる（日付を直した行は、自動でチェックが入る）。
+function ymdOf(dt){ return dt ? dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0') : ''; }
+function baseDateSource(d){
+  const m = normMonth(d.expectedOrderMonth);
+  if(/^\d{4}-\d{2}$/.test(m)) return '受注予定月';
+  if(d.quoteDate && !isNaN(new Date(d.quoteDate).getTime())) return '見積日';
+  if(d.occurredDate && !isNaN(new Date(d.occurredDate).getTime())) return '発生日';
+  return 'なし';
+}
+function orderedAtTargets(){
+  return deals.filter(d => !d.orderedAt && !isExcluded(d) && ANA_WON.indexOf(effStatus(d)) >= 0)
+    .map(d => { const bd = dealBaseDate(d); return { d, sug: ymdOf(bd), src: baseDateSource(d), fy: bd ? fyOf(bd) : null }; })
+    .sort((a, b) => ((b.fy === null ? -1 : b.fy) - (a.fy === null ? -1 : a.fy)) || String(a.d.branch).localeCompare(String(b.d.branch)) || (Number(a.d.no) || 0) - (Number(b.d.no) || 0));
+}
+function openOrderedAtFix(){
+  const list = orderedAtTargets();
+  const byFy = {};
+  list.forEach(x => { const k = x.fy === null ? '判定不能' : x.fy + '年度'; byFy[k] = (byFy[k] || 0) + 1; });
+  const rows = list.map((x, i) => `<tr>
+      <td><input type="checkbox" id="od-${i}"></td>
+      <td>${escapeHtml(x.d.siteName || x.d.projectName || x.d.customerName || '名称なし')}<span class="mo">${escapeHtml(x.d.branch)}${x.d.no !== undefined && x.d.no !== '' ? ' No.' + escapeHtml(String(x.d.no)) : ''}</span></td>
+      <td>${escapeHtml(effStatus(x.d))}</td>
+      <td class="num">${x.fy === null ? '－' : x.fy + '年度'}<span class="mo">${escapeHtml(x.src)}</span></td>
+      <td><input type="date" id="oa-${i}" value="${x.sug}" style="width:140px" oninput="document.getElementById('od-${i}').checked = true"></td></tr>`).join('');
+  document.getElementById('ordBody').innerHTML = list.length
+    ? `<div class="cash-sub">受注日がまだ入っていない 受注・工事中・完了 の案件です（<b>${list.length}件</b>）。いまの年度は、受注予定月→見積日→発生日の順で<b>仮に</b>判定しています。<br>正しい受注日を入れて、チェックした案件だけ保存します。日付を直した行は、自動でチェックが入ります。そのまま保存すると、いまの日付で確定します。<br>${Object.keys(byFy).map(k => k + ' ' + byFy[k] + '件').join('　')}</div>
+      <div style="margin:8px 0; display:flex; gap:8px;"><button class="btn btn-ghost" id="btnOrdAll">すべてチェック</button><button class="btn btn-ghost" id="btnOrdNone">すべて外す</button></div>
+      <div class="cash-table-wrap cash-detail" style="max-height:50vh; overflow:auto;"><table class="cash-table"><thead><tr><th></th><th>案件</th><th>ステータス</th><th>いまの年度（仮）</th><th>受注日</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    : '<div class="cash-sub">受注日が未入力の案件は、ありません。</div>';
+  document.getElementById('btnOrdApply').disabled = !list.length;
+  window.__ordList = list;
+  const setAll = v => list.forEach((x, i) => { const el = document.getElementById('od-' + i); if(el) el.checked = v; });
+  const a = document.getElementById('btnOrdAll'), n = document.getElementById('btnOrdNone');
+  if(a) a.addEventListener('click', () => setAll(true));
+  if(n) n.addEventListener('click', () => setAll(false));
+  document.getElementById('ordOverlay').classList.add('open');
+}
+document.getElementById('btnOrdClose').addEventListener('click', () => document.getElementById('ordOverlay').classList.remove('open'));
+document.getElementById('btnOrdApply').addEventListener('click', async () => {
+  const list = window.__ordList || [];
+  const sel = [];
+  let noDate = 0;
+  list.forEach((x, i) => {
+    const c = document.getElementById('od-' + i), t = document.getElementById('oa-' + i);
+    if(!c || !c.checked) return;
+    if(!t.value){ noDate++; return; }
+    sel.push({ x, date: t.value });
+  });
+  if(!sel.length){ alert(noDate ? 'チェックした案件に、受注日が入っていません' : '保存する案件が選ばれていません'); return; }
+  if(!confirm(sel.length + '件の受注日を保存します。' + (noDate ? '\n（受注日が空の ' + noDate + '件は見送ります）' : '') + '\nよろしいですか？')) return;
+  const btn = document.getElementById('btnOrdApply');
+  btn.disabled = true;
+  let ok = 0, conflict = 0, failed = 0;
+  for(let k = 0; k < sel.length; k++){
+    btn.textContent = '保存しています… ' + (k + 1) + '/' + sel.length;
+    const d = sel[k].x.d;
+    try{
+      // 変更するのは受注日だけ（他の項目はそのまま）
+      const res = await gasPost('deal_extra_upsert', { id: d.id, orderedAt: sel[k].date, baseUpdatedAt: d.updatedAt || '', force: false });
+      if(res.status === 'success') ok++; else if(res.status === 'conflict') conflict++; else failed++;
+    }catch(e){ failed++; }
+  }
+  btn.textContent = 'チェックした案件の受注日を保存';
+  await loadDeals({ force: true });
+  let msg = '✅ ' + ok + '件の受注日を保存しました';
+  if(conflict) msg += '／' + conflict + '件は他の人が先に更新していたため見送り';
+  if(failed) msg += '／' + failed + '件は保存できませんでした';
+  showToast(msg, (conflict || failed) ? 'err' : undefined);
+  openOrderedAtFix();
+});
+
 // ==== 確定金額が入っている案件を「完了」へ一括移動 ====
 // 対象：手動ステータスが 見積中／受注／工事中 で、確定金額が入っているもの（失注・完了は対象外）
 function bulkCompleteTargets(){
@@ -3327,6 +3414,7 @@ function formSnapshot(){
 function clearForm(){
   coreFields.forEach(f => { const el = document.getElementById('c-' + f); if(el) el.value = ''; });
   editFields.forEach(f => { const el = document.getElementById('f-' + f); if(el) el.value = ''; });
+  { const oa = document.getElementById('f-orderedAt'); if(oa){ oa.value = ''; oa.dataset.init = ''; } }
 }
 
 function openNewModal(){
@@ -3373,6 +3461,7 @@ function openModal(deal){
     el.value = deal[f] !== undefined && deal[f] !== null ? deal[f] : '';
   });
 
+  { const oa = document.getElementById('f-orderedAt'); oa.value = toDateInputVal(deal.orderedAt); oa.dataset.init = oa.value; }
   editFields.forEach(f => {
     const el = document.getElementById('f-' + f);
     if(f === 'quoteDate' || f === 'nextActionDate' || f === 'constructionStart' || f === 'constructionEnd' || f === 'purchaseDate' || f === 'partsDate' || f === 'outsourceDate'){
@@ -3626,6 +3715,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
       setSeenText(newId, document.getElementById('c-currentStatus').value);
       const extraData = { id: newId };
       editFields.forEach(f => { extraData[f] = document.getElementById('f-' + f).value; });
+    { const oa = document.getElementById('f-orderedAt'); if(oa && oa.value !== (oa.dataset.init || '')) extraData.orderedAt = oa.value; }
       const extraRes = await gasPost('deal_extra_upsert', extraData);
       if(extraRes.status !== 'success'){ alert('追加情報の保存に失敗しました：' + extraRes.data); }
       else showToast('✅ 新規案件を登録しました（' + branch + 'シート ' + (createRes.data.no !== undefined && createRes.data.no !== '' ? 'No.' + createRes.data.no + '・' : '') + createRes.data.rowNum + '行目）');
@@ -3673,6 +3763,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
 
     const extraData = { id: newId, baseUpdatedAt, force };
     editFields.forEach(f => { extraData[f] = document.getElementById('f-' + f).value; });
+    { const oa = document.getElementById('f-orderedAt'); if(oa && oa.value !== (oa.dataset.init || '')) extraData.orderedAt = oa.value; }
 
     const prevStatus = effStatus(currentDeal);
 

@@ -843,7 +843,16 @@ function dealExtraUpsert(data) {
     // 受注日時の自動記録：受注系ステータスへ「切り替わった」ときだけ記録する
     // （既に受注系だった案件には後から日時を付けない＝過去案件の日数が狂わないように）
     const oCol = headers.indexOf('orderedAt');
-    if (oCol >= 0) {
+    if (oCol >= 0 && data.orderedAt !== undefined) {
+      // 受注日を画面から指定した場合は、その日付をそのまま使う
+      // （空文字なら消す。次に受注系へ切り替えたとき、また自動で記録される）
+      if (String(data.orderedAt) === '') {
+        data.orderedAt = '';
+      } else {
+        try { data.orderedAt = Utilities.parseDate(String(data.orderedAt).slice(0, 10), 'Asia/Tokyo', 'yyyy-MM-dd'); }
+        catch (e) { return makeErr('受注日の形式が正しくありません：' + data.orderedAt); }
+      }
+    } else if (oCol >= 0) {
       const WON_STATUSES = ['受注', '工事中', '完了'];
       const sCol = headers.indexOf('status');
       let exOrdered = '', exStatus = '';
