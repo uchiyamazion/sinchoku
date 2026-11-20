@@ -73,7 +73,7 @@ const EXTRA_HEADERS = [
   'nextActionDate', 'nextActionNote', 'excluded',
   'partsSupplier', 'partsDate', 'partsAmount', 'partsBillingMonth',
   'outsourceSupplier', 'outsourceDate', 'outsourceAmount', 'outsourceBillingMonth',
-  'orderedAt', 'orderDoc',
+  'orderedAt', 'orderDoc', 'noteAt',
   'updatedAt'
 ];
 
@@ -312,6 +312,7 @@ function dealList() {
       nextActionNote: extra.nextActionNote || '',
       excluded: extra.excluded ? '1' : '',
       orderDoc: extra.orderDoc ? '1' : '',
+      noteAt: extra.noteAt || '',
       partsSupplier: extra.partsSupplier || '',
       partsDate: extra.partsDate || '',
       partsAmount: extra.partsAmount || '',
@@ -652,6 +653,21 @@ function dealCoreCreate(data) {
   }
 }
 
+// 追加情報シートの noteAt（追記・更新日時）だけを現在時刻にする（行が無ければ作る）。呼び出し元でロック済みの前提
+function touchNoteAt_(id) {
+  const sh = ensureExtraSheet_();
+  const vals = sh.getDataRange().getValues();
+  const headers = vals[0];
+  const idCol = headers.indexOf('id');
+  const nCol = headers.indexOf('noteAt');
+  if (idCol < 0 || nCol < 0) return;
+  for (let i = 1; i < vals.length; i++) {
+    if (vals[i][idCol] == id) { sh.getRange(i + 1, nCol + 1).setValue(new Date()); return; }
+  }
+  const row = headers.map(h => (h === 'id' ? id : (h === 'noteAt' ? new Date() : '')));
+  sh.appendRow(row);
+}
+
 function dealCoreUpdate(data) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -686,12 +702,18 @@ function dealCoreUpdate(data) {
       if (cc.length) return makeRes({ core: cc }, 'conflict');
     }
 
+    // 現在状況・懸案事項が実際に書き換わったときは、追記日時（noteAt）を更新する
+    let noteChanged = false;
     EDITABLE_CORE_FIELDS.forEach(f => {
       if (data[f] === undefined) return;
       // changedCore が指定されている場合は、変更した項目だけ書き込む（他の人の編集を上書きしない）
       if (data.changedCore && data.changedCore.indexOf(f) < 0) return;
       const colIdx = COL[f];
       if (!colIdx) return;
+      if ((f === 'currentStatus' || f === 'pendingIssue') &&
+          String(sh.getRange(rowNum, colIdx).getValue()) !== String(data[f])) {
+        noteChanged = true;
+      }
       sh.getRange(rowNum, colIdx).setValue(data[f]);
     });
 
@@ -705,6 +727,7 @@ function dealCoreUpdate(data) {
       }
     }
 
+    if (noteChanged) touchNoteAt_(tab + '::' + newDealNo);
     return makeRes({ id: tab + '::' + newDealNo, rowNum: rowNum, dealNo: newDealNo });
   } catch (err) {
     return makeErr('dealCoreUpdate error: ' + err.toString());
@@ -871,12 +894,19 @@ function dealExtraUpsert(data) {
 
     for (let i = 1; i < vals.length; i++) {
       if (vals[i][idCol] == data.id) {
+        // 次のアクションのメモが書き換わったときは、追記日時（noteAt）を更新する
+        const nIdx = headers.indexOf('nextActionNote');
+        if (data.noteAt === undefined && data.nextActionNote !== undefined && nIdx >= 0 &&
+            String(data.nextActionNote) !== String(vals[i][nIdx])) {
+          data.noteAt = new Date();
+        }
         const row = headers.map(h => (data[h] !== undefined ? data[h] : vals[i][headers.indexOf(h)]));
         sh.getRange(i + 1, 1, 1, headers.length).setValues([row]);
         return makeRes({ id: data.id, conflicts });
       }
     }
 
+    if (data.noteAt === undefined && data.nextActionNote) data.noteAt = new Date();
     const row = headers.map(h => (data[h] !== undefined ? data[h] : ''));
     sh.appendRow(row);
     return makeRes({ id: data.id, conflicts });

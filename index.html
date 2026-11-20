@@ -3247,7 +3247,7 @@ function renderCard(d, hasConflict, justUpdated){
       ${elapsedBadge(d)}
       ${staleBadge(d)}
       ${quoteExpiryBadge(d)}
-      ${completenessBadge(d)}
+      ${noteAtBadge(d)}
       ${orderDocBadge(d)}
     </div>
     <div class="row mono" style="color:var(--ink-soft); font-size:10.5px;">
@@ -3918,6 +3918,14 @@ function sheetNoHtml(d){
   const label = hasNo ? 'No.' + d.no : d.rowNum + '行目';
   const title = `シート「${d.sheet || d.branch}」${hasNo ? ' No.' + d.no + '／' : ''}${d.rowNum}行目`;
   return `<span class="sheet-no" title="${escapeHtml(title)}">${escapeHtml(String(label))}</span>`;
+}
+// 現在状況・懸案事項・次のアクションのメモを、最後に書き換えた日時（このアプリから保存したもの）
+function noteAtBadge(d){
+  if(!d.noteAt) return '';
+  const t = new Date(d.noteAt);
+  if(isNaN(t.getTime())) return '';
+  const md = (t.getMonth() + 1) + '/' + t.getDate() + ' ' + String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
+  return `<span class="badge b-grey mono" title="現在状況・懸案事項・次のアクションのメモを、最後に書き換えた日時">📝 追記 ${md}</span>`;
 }
 function completenessBadge(d){
   const c = completeness(d);
