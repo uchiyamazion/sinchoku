@@ -218,6 +218,13 @@
   @keyframes m-float{ 0%,100%{ transform:translateY(0);} 50%{ transform:translateY(-4px);} }
   @keyframes m-jump{ 0%,100%{ transform:translateY(0);} 50%{ transform:translateY(-16px);} }
   @media (max-width:700px){ .mascot svg{ width:48px; height:48px; } #funBar{ padding:8px 12px 0; } }
+  .mascot .m-chat{ display:none; pointer-events:auto; gap:4px; align-items:center; }
+  .mascot .m-chat.open{ display:flex; }
+  .mascot .m-chat input{ width:230px; max-width:62vw; border:2px solid #F3B5C2; border-radius:999px; padding:6px 12px; font-size:12px; outline:none; background:#fff; color:#5a4646; font-family:inherit; }
+  .mascot .m-chat input:focus{ border-color:#E58CA0; }
+  .mascot .m-chat button{ border:none; background:#F08A9B; color:#fff; border-radius:50%; width:30px; height:30px; cursor:pointer; font-size:12px; padding:0; }
+  .mascot .m-chat-btn{ position:absolute; right:68px; bottom:12px; pointer-events:auto; border:2px solid #F3B5C2; background:#fff; border-radius:50%; width:30px; height:30px; cursor:pointer; font-size:14px; line-height:1; padding:0; box-shadow:0 2px 4px rgba(0,0,0,.12); }
+  @media (max-width:700px){ .mascot .m-chat-btn{ right:54px; } }
   .amt{ font-family:'IBM Plex Mono',monospace; font-weight:600; color:var(--ink); font-size:12px; }
   .next-action{ font-size:10.5px; margin-top:6px; color:var(--ink-soft); display:flex; gap:4px; align-items:center; }
   .next-action.overdue{ color:var(--red); font-weight:700; }
@@ -643,6 +650,11 @@
         <input type="checkbox" id="expiredOnlyCheck"> 見積の有効期限切れ・間近（7日以内）のみ
       </label>
     </div>
+    <div class="filter-field filter-field-checkbox">
+      <label class="checkbox-label">
+        <input type="checkbox" id="orderDocOnlyCheck"> 注文書が未受領の受注・工事中のみ
+      </label>
+    </div>
   </div>
   <div class="filter-panel-actions">
     <button class="btn btn-ghost" id="btnReset">条件をリセット</button>
@@ -942,6 +954,7 @@ let conflictOnlyVal = false;
 let unreadOnlyVal = false;
 let followOnlyVal = false;
 let expiredOnlyVal = false;
+let orderDocOnlyVal = false;
 const QUOTE_VALID_MONTHS = 2;   // 見積の有効期限（月）
 const STALE_DAYS = 14; // 見積提出済のまま動きがない日数の目安
 const STALE_ENABLED = false; // 停滞判定は無効（更新していても指摘されるため）。再び使う場合は true
@@ -991,10 +1004,14 @@ function advanceOf(d){
   return (d.advanceAmount !== '' && d.advanceAmount != null && !isNaN(n) && n > 0) ? n : 0;
 }
 // 注文書の受領チェック：受領済は緑、受注・工事中でまだ未受領なら黄色で知らせる
+function needsOrderDoc(d){
+  if(String(d.orderDoc) === '1') return false;
+  const st = effStatus(d);
+  return st === '受注' || st === '工事中';
+}
 function orderDocBadge(d){
   if(String(d.orderDoc) === '1') return '<span class="badge b-green">注文書 ✓</span>';
-  const st = effStatus(d);
-  return (st === '受注' || st === '工事中') ? '<span class="badge b-amber" title="注文書を受け取ったら、案件詳細で「受領済」にしてください">注文書未</span>' : '';
+  return needsOrderDoc(d) ? '<span class="badge b-amber" title="注文書を受け取ったら、案件詳細で「受領済」にしてください">注文書未</span>' : '';
 }
 function purchaseLineHtml(d){
   const hasAmt = d.purchaseAmount !== '' && d.purchaseAmount != null;
@@ -2599,7 +2616,7 @@ function populateFilters(){
 function updateFilterCountBadge(){
   const count = [
     branchFilterVal, assigneeFilterVal, rankFilterVal, sourceFilterVal, orderMonthFilterVal,
-    minAmountVal, maxAmountVal, (dateFromVal || dateToVal) ? 'x' : '', excludeVal, conflictOnlyVal ? 'x' : '', unreadOnlyVal ? 'x' : '', followOnlyVal ? 'x' : '', expiredOnlyVal ? 'x' : ''
+    minAmountVal, maxAmountVal, (dateFromVal || dateToVal) ? 'x' : '', excludeVal, conflictOnlyVal ? 'x' : '', unreadOnlyVal ? 'x' : '', followOnlyVal ? 'x' : '', expiredOnlyVal ? 'x' : '', orderDocOnlyVal ? 'x' : ''
   ].filter(Boolean).length;
   const badge = document.getElementById('filterCount');
   if(count > 0){
@@ -2620,6 +2637,7 @@ function render(){
   if(unreadOnlyVal) visible = visible.filter(d => unreadInfo[d.id]);
   if(followOnlyVal) visible = visible.filter(needsFollow);
   if(expiredOnlyVal) visible = visible.filter(needsExpiryCare);
+  if(orderDocOnlyVal) visible = visible.filter(needsOrderDoc);
 
   const banner = document.getElementById('conflictBanner');
   if(pairs.length){
@@ -3282,6 +3300,7 @@ document.getElementById('conflictOnlyCheck').addEventListener('change', e => { c
 document.getElementById('statusUnreadOnlyCheck').addEventListener('change', e => { unreadOnlyVal = e.target.checked; render(); });
 document.getElementById('followOnlyCheck').addEventListener('change', e => { followOnlyVal = e.target.checked; render(); });
 document.getElementById('expiredOnlyCheck').addEventListener('change', e => { expiredOnlyVal = e.target.checked; render(); });
+document.getElementById('orderDocOnlyCheck').addEventListener('change', e => { orderDocOnlyVal = e.target.checked; render(); });
 let amountDebounce;
 function onAmountInput(){
   clearTimeout(amountDebounce);
@@ -3523,7 +3542,7 @@ document.querySelectorAll('.date-presets button').forEach(b => b.addEventListene
 
 document.getElementById('btnReset').addEventListener('click', () => {
   branchFilterVal = ''; assigneeFilterVal = ''; rankFilterVal = ''; sourceFilterVal = '';
-  orderMonthFilterVal = ''; minAmountVal = ''; maxAmountVal = ''; dateFromVal = ''; dateToVal = ''; dateBasisVal = 'occurredDate'; conflictOnlyVal = false; unreadOnlyVal = false; followOnlyVal = false; expiredOnlyVal = false;
+  orderMonthFilterVal = ''; minAmountVal = ''; maxAmountVal = ''; dateFromVal = ''; dateToVal = ''; dateBasisVal = 'occurredDate'; conflictOnlyVal = false; unreadOnlyVal = false; followOnlyVal = false; expiredOnlyVal = false; orderDocOnlyVal = false;
   searchVal = ''; excludeVal = ''; sortSelectVal = 'date'; noJumpVal = '';
   document.getElementById('noJump').value = '';
 
@@ -3539,6 +3558,7 @@ document.getElementById('btnReset').addEventListener('click', () => {
   document.getElementById('statusUnreadOnlyCheck').checked = false;
   document.getElementById('followOnlyCheck').checked = false;
   document.getElementById('expiredOnlyCheck').checked = false;
+  document.getElementById('orderDocOnlyCheck').checked = false;
   document.getElementById('searchBox').value = '';
   document.getElementById('excludeBox').value = '';
   document.getElementById('sortSelect').value = 'date';
@@ -4060,6 +4080,8 @@ function mascotInit(){
   mascotEl = document.createElement('div');
   mascotEl.className = 'mascot';
   mascotEl.innerHTML = `<div class="m-bubble" id="mBubble"></div>
+    <div class="m-chat" id="mChat"><input id="mChatInput" type="text" placeholder="しんちょくんに頼む（例：金額が大きい順）" autocomplete="off"><button id="mChatGo" title="送る">▶</button></div>
+    <button class="m-chat-btn" id="mChatBtn" title="しんちょくんに頼む（並び替え・絞り込み）">💬</button>
     <svg viewBox="0 0 80 80" onclick="mascotPoke()">
       <path d="M40 25 q-2 -9 -10 -9 q0 8 10 9 M40 25 q2 -9 10 -9 q0 8 -10 9" fill="#9BD9A4" stroke="#6B5555" stroke-width="1.8" stroke-linejoin="round"/>
       <ellipse class="m-arm m-arm-l" cx="14" cy="53" rx="6.5" ry="4.8" fill="#fff" stroke="#6B5555" stroke-width="2.2"/>
@@ -4081,9 +4103,10 @@ function mascotInit(){
       <path class="m-sweat" d="M58 33 q-4 6 0 8.5 q4 -2.5 0 -8.5z" fill="#9FD3F2" stroke="#6B9FBF" stroke-width="1"/>
     </svg>`;
   document.body.appendChild(mascotEl);
+  mascotWireChat();
   mascotEl.style.display = mascotOff() ? 'none' : '';
 }
-const MASCOT_TALK = ['まだ空欄あるでしょ？見逃さないよ😏', '次のアクション決めてない案件、あるよね？', 'ボクのゲージ、まだ満たせないの〜？', 'え、その案件まだそのまま？ふーん…😏', 'やればできる人でしょ？知ってるよ', '入力サボってると、ボク拗ねるよ？'];
+const MASCOT_TALK = ['まだ空欄あるでしょ？見逃さないよ😏', '次のアクション決めてない案件、あるよね？', 'ボクのゲージ、まだ満たせないの〜？', 'え、その案件まだそのまま？ふーん…😏', 'やればできる人でしょ？知ってるよ', '入力サボってると、ボク拗ねるよ？', '💬から頼んでみて？「金額が大きい順」とか「旭川だけ」とか、やってあげるよ😏'];
 const SAVE_MSGS = ['お、やるじゃん。えらいえらい😏', 'ふーん、ちゃんと入力できるんだ', 'やっと入れたね〜。ナイス！', 'はい保存完了。やればできるじゃん'];
 function mascotSay(text, mood, ms, action){
   if(mascotOff()) return;
@@ -4116,6 +4139,120 @@ function mascotPoke(){
   } else {
     mascotSay(pickOne(MASCOT_TALK), 'happy');
   }
+}
+// ==== しんちょくんに頼む（キーワード判定。AIは使わず、画面の並び替え・絞り込みを操作する） ====
+function mcNorm(s){ return String(s || '').normalize('NFKC').toLowerCase().replace(/\s+/g, ''); }
+function mcBranchOf(t){
+  let best = null, bestLen = 0;
+  branchList().forEach(b => {
+    const full = mcNorm(b);
+    const inner = (full.match(/\((.*?)\)/) || [])[1];
+    [full, full.replace(/\(.*?\)/g, ''), inner].filter(Boolean).forEach(k => {
+      if(t.includes(k) && k.length > bestLen){ best = b; bestLen = k.length; }
+    });
+  });
+  return best;
+}
+function mcSortOf(t){
+  const has = re => re.test(t);
+  if(has(/金額|円/)) return has(/小さい|安い|少ない|低い/) ? ['amountAsc', '金額が小さい順'] : ['amountDesc', '金額が大きい順'];
+  if(has(/有効期限|失効|期限/)) return ['expiryAsc', '見積有効期限が近い順'];
+  if(has(/経過|日数|放置|ほったらかし|停滞/)) return has(/短い|新しい|少ない/) ? ['elapsedAsc', '経過日数が短い順'] : ['elapsedDesc', '経過日数が長い順'];
+  if(has(/ランク/)) return ['rank', 'ランク順'];
+  if(has(/粗利/)) return ['profitRateDesc', '粗利率が高い順'];
+  if(has(/担当/)) return ['assignee', '担当者順'];
+  if(has(/源泉|紹介/)) return ['source', '源泉（紹介元）順'];
+  if(has(/発生日/)) return has(/古い|昔/) ? ['occurredDateAsc', '発生日が古い順'] : ['occurredDateDesc', '発生日が新しい順'];
+  if(has(/no順|番号|シート/)) return ['sheetNo', 'シートのNo順'];
+  if(has(/日付|工事日|標準|デフォルト/)) return ['date', '日付順'];
+  if(has(/古い/)) return ['occurredDateAsc', '発生日が古い順'];
+  if(has(/新しい/)) return ['occurredDateDesc', '発生日が新しい順'];
+  return null;
+}
+function mascotCommand(raw){
+  const t = mcNorm(raw);
+  if(!t) return;
+  if(/ヘルプ|できること|何ができる|使い方|help/.test(t)){
+    mascotSay('こんなふうに頼んでね👇 「金額が大きい順」「旭川だけ」「期限超過」「注文書がまだ」「2025年度」「No.26」「○○を検索」「リセット」。組み合わせてもOKだよ', 'happy', 12000);
+    return;
+  }
+  if(/リセット|クリア|解除|元に戻|全部戻|ぜんぶ戻/.test(t)){
+    document.getElementById('btnReset').click();
+    mascotSay('ぜんぶ元に戻したよ。まっさらだね😏', 'happy');
+    return;
+  }
+  const sm = String(raw).normalize('NFKC').trim().match(/^(.+?)(?:を|で|って)?(?:検索|探して|さがして|探す)/);
+  if(sm && sm[1].trim()){
+    const q = sm[1].trim();
+    document.getElementById('searchBox').value = q;
+    searchVal = q;
+    render();
+    mascotSay('「' + q + '」で検索したよ😏', 'happy');
+    return;
+  }
+  const done = [], miss = [];
+  const wantsSort = /順|ソート|並べ|並び|sort/.test(t);
+  const filterOnly = /だけ|のみ/.test(t);
+  // 年度
+  const cur = fyOf(new Date());
+  let fy = null;
+  const ym = t.match(/(\d{4})年/);
+  if(ym) fy = Number(ym[1]);
+  else if(/来年度/.test(t)) fy = cur + 1;
+  else if(/前年度|去年度|昨年度/.test(t)) fy = cur - 1;
+  else if(/今年度/.test(t)) fy = cur;
+  else if(/全期間|全年度|すべての年度/.test(t)) fy = 'all';
+  if(fy !== null){
+    const v = fy === 'all' ? 'all' : (fy === cur ? 'cur' : String(fy));
+    const sel = document.getElementById('boardFy');
+    if(Array.from(sel.options).some(o => o.value === v)){
+      boardFyVal = v; lsSet(BOARD_FY_KEY, v); sel.value = v; sel.classList.toggle('alt', v !== 'cur');
+      done.push(v === 'all' ? '全期間' : (v === 'cur' ? '今年度' : fy + '年度'));
+    } else miss.push(fy + '年度は見当たらなかったよ');
+  }
+  // 拠点
+  if(/全拠点|すべての拠点|全部の拠点/.test(t)){
+    branchFilterVal = ''; document.getElementById('branchFilter').value = ''; done.push('全拠点');
+  } else {
+    const b = mcBranchOf(t);
+    if(b){ branchFilterVal = b; document.getElementById('branchFilter').value = b; done.push(b); }
+  }
+  // 絞り込み
+  if(/期限超過|フォロー|期限が過ぎ|遅れてる/.test(t)){
+    followOnlyVal = true; document.getElementById('followOnlyCheck').checked = true; done.push('要フォローのみ');
+  }
+  if(/有効期限|失効|期限切れ/.test(t) && (!wantsSort || filterOnly)){
+    expiredOnlyVal = true; document.getElementById('expiredOnlyCheck').checked = true; done.push('見積の有効期限切れ・間近のみ');
+  }
+  if(/注文書.*(未|まだ|ない|無い|なし|足りない|もらってない|揃ってない)/.test(t)){
+    orderDocOnlyVal = true; document.getElementById('orderDocOnlyCheck').checked = true; done.push('注文書が未受領のみ');
+  }
+  // No
+  const nm = t.match(/no\.?(\d+)/) || t.match(/(\d+)番/);
+  if(nm){ noJumpVal = nm[1]; document.getElementById('noJump').value = nm[1]; done.push('No.' + nm[1]); }
+  // 並び替え
+  if(wantsSort){
+    const so = mcSortOf(t);
+    if(so){ sortSelectVal = so[0]; document.getElementById('sortSelect').value = so[0]; done.push(so[1]); }
+  }
+  if(!done.length){
+    mascotSay(miss.length ? miss.join('／') : '…ごめん、それはまだ分かんない。「できること」って聞いてみて🥺', 'worry', 7000);
+    return;
+  }
+  render();
+  mascotSay(done.join('・') + 'にしたよ😏' + (miss.length ? '（' + miss.join('／') + '）' : ''), 'happy', 6000);
+}
+function mascotWireChat(){
+  const btn = document.getElementById('mChatBtn'), box = document.getElementById('mChat');
+  const inp = document.getElementById('mChatInput'), go = document.getElementById('mChatGo');
+  btn.addEventListener('click', e => { e.stopPropagation(); box.classList.toggle('open'); if(box.classList.contains('open')) inp.focus(); });
+  const send = () => { const v = inp.value.trim(); if(!v) return; inp.value = ''; mascotCommand(v); };
+  go.addEventListener('click', send);
+  inp.addEventListener('keydown', e => {
+    if(e.isComposing || e.keyCode === 229) return;   // 日本語入力の変換確定のEnterは無視
+    if(e.key === 'Enter'){ e.preventDefault(); send(); }
+    else if(e.key === 'Escape'){ box.classList.remove('open'); }
+  });
 }
 function mascotGreet(){
   if(greeted) return;
