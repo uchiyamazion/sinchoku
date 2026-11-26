@@ -112,9 +112,55 @@ function setup() {
 // doGet / doPost ルーター
 // ════════════════════════════════════════════════
 
+// ════════════════════════════════════════════════
+// 認証（Googleログイン）
+// 画面から送られたGoogleのIDトークンを確認し、許可リストにあるアカウントだけを通す。
+// 許可リスト：Apps Scriptの「プロジェクトの設定 → スクリプト プロパティ」に
+//   ALLOWED_EMAILS = a@gmail.com,b@gmail.com（カンマ区切り）を登録する。未設定のときは全員を拒否する。
+// ════════════════════════════════════════════════
+
+const GOOGLE_CLIENT_ID = '782190614995-5d4fur401smd1gpnnvs43h3m2q2q2ar3.apps.googleusercontent.com';
+
+function allowedEmails_() {
+  const v = PropertiesService.getScriptProperties().getProperty('ALLOWED_EMAILS') || '';
+  return v.split(/[\s,;]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+}
+
+// 戻り値：{ ok:true, email } または { ok:false, reason:'unauthorized' | 'forbidden' }
+function verifyIdToken_(idToken) {
+  if (!idToken) return { ok: false, reason: 'unauthorized' };
+  const cache = CacheService.getScriptCache();
+  const key = 'idt_' + Utilities.base64EncodeWebSafe(
+    Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, idToken)).slice(0, 40);
+  let info = null;
+  const hit = cache.get(key);
+  if (hit) { try { info = JSON.parse(hit); } catch (e) { info = null; } }
+  if (!info) {
+    const res = UrlFetchApp.fetch(
+      'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken),
+      { muteHttpExceptions: true });
+    if (res.getResponseCode() !== 200) return { ok: false, reason: 'unauthorized' };
+    const r = JSON.parse(res.getContentText());
+    info = { aud: r.aud, iss: r.iss, email: r.email, email_verified: r.email_verified, exp: r.exp };
+    const ttl = Math.min(300, Number(info.exp) - Math.floor(Date.now() / 1000));
+    if (ttl > 0) cache.put(key, JSON.stringify(info), ttl);
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const iss = String(info.iss || '');
+  if (info.aud !== GOOGLE_CLIENT_ID) return { ok: false, reason: 'unauthorized' };
+  if (iss !== 'accounts.google.com' && iss !== 'https://accounts.google.com') return { ok: false, reason: 'unauthorized' };
+  if (Number(info.exp) <= now) return { ok: false, reason: 'unauthorized' };
+  if (String(info.email_verified) !== 'true') return { ok: false, reason: 'unauthorized' };
+  const email = String(info.email || '').toLowerCase();
+  if (allowedEmails_().indexOf(email) < 0) return { ok: false, reason: 'forbidden' };
+  return { ok: true, email: email };
+}
+
 function doGet(e) {
   try {
     const p = e.parameter || {};
+    const auth = verifyIdToken_(p.idToken);
+    if (!auth.ok) return makeErr(auth.reason);
     const action = p.action || 'deal_list';
     switch (action) {
       case 'deal_list': return dealList();
@@ -129,6 +175,8 @@ function doGet(e) {
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
+    const auth = verifyIdToken_(body.idToken);
+    if (!auth.ok) return makeErr(auth.reason);
     const action = body.action;
     const payload = body.payload || body;
 

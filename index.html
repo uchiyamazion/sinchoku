@@ -521,16 +521,16 @@
     75%{ transform: translateX(6px); }
   }
 </style>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 
 <div id="loginScreen">
   <div class="login-box">
     <h1>案件進捗ボード</h1>
-    <p>4桁のPINを入力してください</p>
-    <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" id="pinInput" autocomplete="off">
-    <div id="pinError">PINが違います</div>
-    <button class="btn btn-primary" id="pinSubmit">開く</button>
+    <p>許可されたGoogleアカウントでログインしてください</p>
+    <div id="gBtn" style="display:flex; justify-content:center; margin:6px 0 14px; min-height:44px;"></div>
+    <div id="pinError"></div>
   </div>
 </div>
 
@@ -1794,21 +1794,26 @@ function fetchWithTimeout(url, opts, ms){
     })
     .finally(() => clearTimeout(t));
 }
-function gasGet(action, params={}){
-  const qs = new URLSearchParams({ action, ...params }).toString();
-  return fetchWithTimeout(`${WEBAPP_URL}?${qs}`, {}, 90000).then(parseGasResponse);
+async function gasGet(action, params={}){
+  const idToken = await authToken();
+  const qs = new URLSearchParams({ action, idToken, ...params }).toString();
+  const json = await fetchWithTimeout(`${WEBAPP_URL}?${qs}`, {}, 90000).then(parseGasResponse);
+  return checkAuth(json, () => gasGet(action, params));
 }
-function gasPost(action, payload){
-  return fetchWithTimeout(WEBAPP_URL, {
+async function gasPost(action, payload){
+  const idToken = await authToken();
+  const json = await fetchWithTimeout(WEBAPP_URL, {
     method:'POST',
     headers:{ 'Content-Type':'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action, payload })
+    body: JSON.stringify({ action, payload, idToken })
   }, 90000).then(parseGasResponse);
+  return checkAuth(json, () => gasPost(action, payload));
 }
 
 // 経過時間（＋Content-Lengthが取れれば%）を表示しながら取得する
 async function gasGetWithProgress(action, onProgress){
-  const url = `${WEBAPP_URL}?${new URLSearchParams({ action }).toString()}`;
+  const idToken = await authToken();
+  const url = `${WEBAPP_URL}?${new URLSearchParams({ action, idToken }).toString()}`;
   const start = Date.now();
   const timer = setInterval(() => {
     onProgress({ elapsed: (Date.now() - start) / 1000, percent: null });
@@ -1834,11 +1839,11 @@ async function gasGetWithProgress(action, onProgress){
       }
       const text = await new Blob(chunks).text();
       onProgress({ elapsed: (Date.now() - start) / 1000, percent: 100 });
-      return JSON.parse(text);
+      return await checkAuth(JSON.parse(text), () => gasGetWithProgress(action, onProgress));
     } else {
       const json = await res.json();
       onProgress({ elapsed: (Date.now() - start) / 1000, percent: 100 });
-      return json;
+      return await checkAuth(json, () => gasGetWithProgress(action, onProgress));
     }
   } catch(e){
     if(e && e.name === 'AbortError') throw new Error('GASが60秒たっても応答しませんでした');
@@ -4448,19 +4453,82 @@ const POLL_INTERVAL_MS = 30000;
 function startPolling(){
   setInterval(() => {
     if(document.hidden) return;   // 別のタブを見ている間は取得しない（GASへの負荷を減らす）
+    if(!document.getElementById('loginScreen').classList.contains('hidden')) return;   // ログイン待ちの間は取得しない
     if(overlay.classList.contains('open')) return;
     if(document.querySelector('.card.dragging')) return;
     loadDeals();
   }, POLL_INTERVAL_MS);
   document.addEventListener('visibilitychange', () => {
-    if(document.visibilityState === 'visible' && !overlay.classList.contains('open')) loadDeals();
+    if(document.visibilityState === 'visible' && !overlay.classList.contains('open') && document.getElementById('loginScreen').classList.contains('hidden')) loadDeals();
   });
 }
 
-// ==== 4桁PINログイン ====
-// ここのPINを変更したい場合は下の文字列を書き換えてください
-const APP_PIN = '8686';
-const PIN_STORAGE_KEY = 'sinchoku_pin_ok';
+// ==== Googleログイン（許可されたアカウントだけが使えます）====
+// 本人確認と許可リストの判定は、GAS側（Code.gs）で行います。
+const GOOGLE_CLIENT_ID = '782190614995-5d4fur401smd1gpnnvs43h3m2q2q2ar3.apps.googleusercontent.com';
+const IDT_KEY = 'sinchoku_idt';
+let ID_TOKEN = '';
+try{ ID_TOKEN = sessionStorage.getItem(IDT_KEY) || ''; }catch(e){}
+let appStarted = false;
+let loginWaiters = [];
+let gsiReady = false;
+
+function tokenExp(t){
+  try{
+    const p = t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(p)).exp * 1000;
+  }catch(e){ return 0; }
+}
+function getIdToken(){
+  return (ID_TOKEN && tokenExp(ID_TOKEN) > Date.now() + 30000) ? ID_TOKEN : '';
+}
+async function authToken(){
+  let t = getIdToken();
+  if(t) return t;
+  await showLogin(ID_TOKEN ? 'ログインの有効期限が切れました。もう一度ログインしてください' : '');
+  return getIdToken();
+}
+function showLogin(msg){
+  return new Promise(resolve => {
+    loginWaiters.push(resolve);
+    const err = document.getElementById('pinError');
+    if(msg){ err.textContent = msg; err.classList.add('show'); } else { err.classList.remove('show'); }
+    document.getElementById('loginScreen').classList.remove('hidden');
+    initGsi();
+  });
+}
+function onCredential(resp){
+  ID_TOKEN = resp.credential;
+  try{ sessionStorage.setItem(IDT_KEY, ID_TOKEN); }catch(e){}
+  document.getElementById('pinError').classList.remove('show');
+  document.getElementById('loginScreen').classList.add('hidden');
+  if(!appStarted){ appStarted = true; startApp(); }
+  const w = loginWaiters; loginWaiters = [];
+  w.forEach(f => f());
+}
+function initGsi(){
+  if(!(window.google && google.accounts && google.accounts.id)){ setTimeout(initGsi, 200); return; }
+  if(!gsiReady){
+    google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: onCredential, auto_select: true, cancel_on_tap_outside: false });
+    google.accounts.id.renderButton(document.getElementById('gBtn'), { theme:'outline', size:'large', text:'signin_with', locale:'ja', width:260 });
+    gsiReady = true;
+  }
+  google.accounts.id.prompt();
+}
+// GASからの認証エラー（unauthorized / forbidden）を受けたら、再ログインさせてからやり直す
+async function checkAuth(json, retry){
+  if(json && json.status === 'error' && (json.data === 'unauthorized' || json.data === 'forbidden')){
+    const forbidden = json.data === 'forbidden';
+    ID_TOKEN = '';
+    try{ sessionStorage.removeItem(IDT_KEY); }catch(e){}
+    if(forbidden && window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
+    await showLogin(forbidden
+      ? 'このアカウントには利用の許可がありません。管理者に許可を依頼するか、別のアカウントでログインしてください'
+      : 'ログインの有効期限が切れました。もう一度ログインしてください');
+    return retry();
+  }
+  return json;
+}
 
 function startApp(){
   if(WEBAPP_URL.indexOf('PASTE_YOUR') === 0){
@@ -4473,38 +4541,12 @@ function startApp(){
   }
 }
 
-function tryLogin(){
-  const input = document.getElementById('pinInput');
-  const errEl = document.getElementById('pinError');
-  if(input.value === APP_PIN){
-    try{ sessionStorage.setItem(PIN_STORAGE_KEY, 'yes'); }catch(e){}
-    document.getElementById('loginScreen').classList.add('hidden');
-    startApp();
-  } else {
-    errEl.classList.add('show');
-    const box = document.querySelector('.login-box');
-    box.classList.remove('shake');
-    void box.offsetWidth; // reflow でアニメーションを再トリガー
-    box.classList.add('shake');
-    input.value = '';
-    input.focus();
-  }
-}
-
-document.getElementById('pinSubmit').addEventListener('click', tryLogin);
-document.getElementById('pinInput').addEventListener('keydown', e => { if(e.key === 'Enter') tryLogin(); });
-document.getElementById('pinInput').addEventListener('input', e => {
-  e.target.value = e.target.value.replace(/[^0-9]/g, '').slice(0,4);
-});
-
-let alreadyAuthed = false;
-try{ alreadyAuthed = sessionStorage.getItem(PIN_STORAGE_KEY) === 'yes'; }catch(e){}
-
-if(alreadyAuthed){
+if(getIdToken()){
   document.getElementById('loginScreen').classList.add('hidden');
+  appStarted = true;
   startApp();
 } else {
-  document.getElementById('pinInput').focus();
+  initGsi();
 }
 </script>
 </body>
