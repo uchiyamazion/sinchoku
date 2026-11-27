@@ -531,6 +531,12 @@
     <p>許可されたGoogleアカウントでログインしてください</p>
     <div id="gBtn" style="display:flex; justify-content:center; margin:6px 0 14px; min-height:44px;"></div>
     <div id="pinError"></div>
+    <div id="reqBox" style="display:none; margin-top:14px; text-align:left;">
+      <div style="font-size:12px; color:var(--ink-soft); margin-bottom:6px;">利用したい場合は、管理者に申請できます。</div>
+      <input id="reqName" type="text" placeholder="お名前（任意）" maxlength="60" style="width:100%; padding:10px; border:1px solid #d8e0ea; border-radius:8px; margin-bottom:8px; box-sizing:border-box; font-size:14px;">
+      <button class="btn btn-primary" id="reqBtn" type="button" style="width:100%;">管理者に利用を申請する</button>
+      <div id="reqMsg" style="font-size:12px; line-height:1.7; margin-top:8px;"></div>
+    </div>
   </div>
 </div>
 
@@ -4488,9 +4494,12 @@ async function authToken(){
   await showLogin(ID_TOKEN ? 'ログインの有効期限が切れました。もう一度ログインしてください' : '');
   return getIdToken();
 }
-function showLogin(msg){
+let reqToken = '';
+function showLogin(msg, canRequest){
   return new Promise(resolve => {
     loginWaiters.push(resolve);
+    document.getElementById('reqBox').style.display = canRequest ? 'block' : 'none';
+    if(canRequest){ document.getElementById('reqBtn').disabled = false; document.getElementById('reqMsg').textContent = ''; }
     const err = document.getElementById('pinError');
     if(msg){ err.textContent = msg; err.classList.add('show'); } else { err.classList.remove('show'); }
     document.getElementById('loginScreen').classList.remove('hidden');
@@ -4519,16 +4528,36 @@ function initGsi(){
 async function checkAuth(json, retry){
   if(json && json.status === 'error' && (json.data === 'unauthorized' || json.data === 'forbidden')){
     const forbidden = json.data === 'forbidden';
+    if(forbidden) reqToken = ID_TOKEN;
     ID_TOKEN = '';
     try{ sessionStorage.removeItem(IDT_KEY); }catch(e){}
     if(forbidden && window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
     await showLogin(forbidden
-      ? 'このアカウントには利用の許可がありません。管理者に許可を依頼するか、別のアカウントでログインしてください'
-      : 'ログインの有効期限が切れました。もう一度ログインしてください');
+      ? 'このアカウントには利用の許可がありません。下から申請するか、別のアカウントでログインしてください'
+      : 'ログインの有効期限が切れました。もう一度ログインしてください', forbidden);
     return retry();
   }
   return json;
 }
+
+document.getElementById('reqBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('reqBtn'), out = document.getElementById('reqMsg');
+  if(!reqToken) return;
+  btn.disabled = true; out.style.color = '#5d6b7c'; out.textContent = '送信中…';
+  try{
+    const qs = new URLSearchParams({ action:'acl_request', name: document.getElementById('reqName').value.trim(), idToken: reqToken }).toString();
+    const j = await fetch(`${WEBAPP_URL}?${qs}`).then(r => r.json());
+    const st = j && j.data && j.data.state;
+    if(j.status === 'success' && (st === 'requested' || st === 'already_requested')){
+      out.style.color = '#1a8a4a';
+      out.innerHTML = '申請しました。管理者が承認するまでお待ちください。<br>承認されたら、この画面を再読み込みしてください。';
+    } else if(j.status === 'success' && st === 'already_allowed'){
+      out.style.color = '#1a8a4a'; out.textContent = 'すでに許可されています。画面を再読み込みしてください。';
+    } else {
+      out.style.color = '#c0392b'; out.textContent = j.message || '申請に失敗しました。管理者に直接連絡してください。'; btn.disabled = false;
+    }
+  }catch(e){ out.style.color = '#c0392b'; out.textContent = '通信に失敗しました。もう一度お試しください。'; btn.disabled = false; }
+});
 
 function startApp(){
   if(WEBAPP_URL.indexOf('PASTE_YOUR') === 0){

@@ -920,7 +920,7 @@ function dealExtraUpsert(data) {
 }
 
 // ════════════════════════════════════════════════
-// AuthGuard.gs ― Googleログインの本人確認（GAS側）  v2
+// AuthGuard.gs ― Googleログインの本人確認（GAS側）  v3
 //
 // ■ 許可リスト
 //   ・共通の「アクセス許可」スプレッドシート（シート名「許可アカウント」）を、管理画面から編集します。
@@ -928,6 +928,8 @@ function dealExtraUpsert(data) {
 //   ・予備として、スクリプト プロパティ ALLOWED_EMAILS（カンマ区切り）も有効です。
 //   ・管理者：シートの「権限」列が「管理者」の人、またはスクリプト プロパティ ADMIN_EMAILS の人。
 //   ・許可リストが空のときは全員を拒否します。
+//   ・許可のない人は、画面の「利用を申請する」から申請できます。申請はシート「申請中」に入り、
+//     管理画面で承認すると、許可アカウントに移ります（管理者にはメールで通知されます）。
 //
 // ■ 初回だけ：エディタで関数 authorizeOnce を選んで「実行」し、権限を承認してください。
 //   （名前の末尾が _ の関数は、実行メニューに表示されません）
@@ -938,11 +940,14 @@ function dealExtraUpsert(data) {
 
 const GOOGLE_CLIENT_ID = '782190614995-5d4fur401smd1gpnnvs43h3m2q2q2ar3.apps.googleusercontent.com';
 const ACL_SHEET_NAME = '許可アカウント';
+const REQ_SHEET_NAME = '申請中';
+const ADMIN_PAGE_URL = 'https://uchiyamazion.github.io/sion-portal/access/';
 
 // 初回だけ実行する関数：外部通信とスプレッドシートの権限の承認画面を出す
 function authorizeOnce() {
   UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=test', { muteHttpExceptions: true });
   CacheService.getScriptCache().put('authorize_test', '1', 5);
+  MailApp.getRemainingDailyQuota();   // 管理者へのメール通知の権限の承認用
   const id = PropertiesService.getScriptProperties().getProperty('ACL_SHEET_ID');
   if (id) { const sh = aclSheet_(); Logger.log('許可シート: ' + sh.getParent().getName() + ' / 登録 ' + Math.max(0, sh.getLastRow() - 1) + ' 件'); }
   Logger.log('承認OK。ACL_SHEET_ID=' + (id ? '設定あり' : '未設定（ALLOWED_EMAILSだけで動作）'));
@@ -964,6 +969,24 @@ function aclSheet_() {
   }
   return sh;
 }
+function reqSheet_() {
+  const id = PropertiesService.getScriptProperties().getProperty('ACL_SHEET_ID');
+  if (!id) return null;
+  const ss = SpreadsheetApp.openById(id);
+  let sh = ss.getSheetByName(REQ_SHEET_NAME);
+  if (!sh) {
+    sh = ss.insertSheet(REQ_SHEET_NAME);
+    sh.getRange(1, 1, 1, 3).setValues([['メールアドレス', '名前', '申請日時']]);
+  }
+  return sh;
+}
+function reqRows_(sh) {
+  if (!sh || sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues()
+    .map(r => ({ email: String(r[0]).trim().toLowerCase(), name: String(r[1] || ''), at: r[2] instanceof Date ? r[2].getTime() : 0 }))
+    .filter(r => r.email);
+}
+
 function aclRows_() {
   const cache = CacheService.getScriptCache();
   const hit = cache.get('acl_rows');
@@ -1018,47 +1041,93 @@ function jsonOut_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-// ---------- 管理画面用の操作（acl_list / acl_add / acl_remove）。管理者だけが使える ----------
-function aclHandle_(action, p, a) {
+// ---------- 利用申請（許可のない人も、Googleにログインしていれば申請できる） ----------
+function aclRequestHandle_(p, a) {
   if (!a.email) return jsonOut_({ status: 'error', success: false, error: a.reason, data: a.reason, message: a.reason });
-  if (adminEmails_().indexOf(a.email) < 0) {
-    return jsonOut_({ status: 'error', success: false, error: 'not_admin', data: 'not_admin', message: '管理者のみ操作できます' });
-  }
+  if (a.ok) return jsonOut_({ status: 'success', success: true, data: { state: 'already_allowed' } });
+  const sh = reqSheet_();
+  if (!sh) return jsonOut_({ status: 'error', success: false, error: 'no_sheet', data: 'no_sheet', message: '申請を受け付けられません。管理者に直接連絡してください' });
+  const cache = CacheService.getScriptCache();
+  const rk = 'req_' + a.email;
+  if (cache.get(rk)) return jsonOut_({ status: 'success', success: true, data: { state: 'already_requested' } });
+  cache.put(rk, '1', 60);
+  const name = String(p.name || '').slice(0, 60);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  let isNew = false;
+  try {
+    const rows = reqRows_(sh);
+    if (rows.some(r => r.email === a.email)) return jsonOut_({ status: 'success', success: true, data: { state: 'already_requested' } });
+    if (rows.length >= 200) return jsonOut_({ status: 'error', success: false, error: 'full', data: 'full', message: '申請が多すぎます。管理者に直接連絡してください' });
+    sh.appendRow([a.email, name, new Date()]);
+    isNew = true;
+  } finally { lock.releaseLock(); }
+  if (isNew) notifyAdmins_(a.email, name);
+  return jsonOut_({ status: 'success', success: true, data: { state: 'requested' } });
+}
+function notifyAdmins_(email, name) {
+  try {
+    const to = adminEmails_().filter((v, i, arr) => arr.indexOf(v) === i);
+    if (!to.length) return;
+    MailApp.sendEmail({
+      to: to.join(','),
+      subject: '【アクセス申請】' + email,
+      body: '利用の申請がありました。\n\nメールアドレス：' + email + '\n名前：' + (name || '（未入力）') +
+            '\n\n承認・却下は、次の管理画面で行ってください。\n' + ADMIN_PAGE_URL
+    });
+  } catch (err) { /* メール送信に失敗しても申請自体は有効 */ }
+}
+
+// ---------- 管理画面用の操作（acl_list / acl_add / acl_remove / acl_approve / acl_reject）。管理者だけが使える ----------
+function aclHandle_(action, p, a) {
+  const bad = (code, msg) => jsonOut_({ status: 'error', success: false, error: code, data: code, message: msg });
+  if (!a.email) return bad(a.reason, a.reason);
+  if (adminEmails_().indexOf(a.email) < 0) return bad('not_admin', '管理者のみ操作できます');
   const props = { me: a.email };
-  if (action === 'acl_list') {
+  const sheetId = PropertiesService.getScriptProperties().getProperty('ACL_SHEET_ID');
+  const result = () => {
+    CacheService.getScriptCache().remove('acl_rows');
     props.rows = aclRows_();
+    props.pending = reqRows_(reqSheet_());
     props.propEmails = listProp_('ALLOWED_EMAILS');
     props.propAdmins = listProp_('ADMIN_EMAILS');
-    props.sheetReady = !!PropertiesService.getScriptProperties().getProperty('ACL_SHEET_ID');
+    props.sheetReady = !!sheetId;
     return jsonOut_({ status: 'success', success: true, data: props });
+  };
+  if (action === 'acl_list') {
+    if (!sheetId) { props.rows = []; props.pending = []; props.propEmails = listProp_('ALLOWED_EMAILS'); props.propAdmins = listProp_('ADMIN_EMAILS'); props.sheetReady = false; return jsonOut_({ status: 'success', success: true, data: props }); }
+    return result();
   }
   const sh = aclSheet_();
-  if (!sh) return jsonOut_({ status: 'error', success: false, error: 'no_sheet', data: 'no_sheet', message: 'スクリプト プロパティ ACL_SHEET_ID が未設定です' });
+  if (!sh) return bad('no_sheet', 'スクリプト プロパティ ACL_SHEET_ID が未設定です');
   const email = String(p.email || '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return jsonOut_({ status: 'error', success: false, error: 'bad_email', data: 'bad_email', message: 'メールアドレスの形式が正しくありません' });
-  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return bad('bad_email', 'メールアドレスの形式が正しくありません');
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
     const last = sh.getLastRow();
     const emails = last > 1 ? sh.getRange(2, 1, last - 1, 1).getValues().map(r => String(r[0]).trim().toLowerCase()) : [];
     const idx = emails.indexOf(email);
-    if (action === 'acl_add') {
-      const name = String(p.name || '').slice(0, 60);
+    const psh = reqSheet_();
+    const pend = reqRows_(psh);
+    const pidx = pend.findIndex(r => r.email === email);
+    const dropPending = () => { if (pidx >= 0) psh.deleteRow(pidx + 2); };
+    if (action === 'acl_add' || action === 'acl_approve') {
+      const name = String(p.name || (pidx >= 0 ? pend[pidx].name : '') || '').slice(0, 60);
       const role = p.role === '管理者' ? '管理者' : '';
       if (idx >= 0) sh.getRange(idx + 2, 1, 1, 3).setValues([[email, name, role]]);
       else sh.appendRow([email, name, role, new Date()]);
+      dropPending();
+    } else if (action === 'acl_reject') {
+      dropPending();
     } else if (action === 'acl_remove') {
-      if (email === a.email) return jsonOut_({ status: 'error', success: false, error: 'self', data: 'self', message: '自分自身は削除できません' });
+      if (email === a.email) return bad('self', '自分自身は削除できません');
       if (idx >= 0) sh.deleteRow(idx + 2);
     } else {
-      return jsonOut_({ status: 'error', success: false, error: 'bad_action', data: 'bad_action', message: '不明な操作です' });
+      return bad('bad_action', '不明な操作です');
     }
   } finally { lock.releaseLock(); }
-  CacheService.getScriptCache().remove('acl_rows');
-  props.rows = aclRows_();
-  return jsonOut_({ status: 'success', success: true, data: props });
+  return result();
 }
 
 // 許可されていれば null、そうでなければエラー応答（JSON）を返す
@@ -1069,6 +1138,7 @@ function authGuard_(e) {
     try { token = (JSON.parse(e.postData.contents) || {}).idToken || ''; } catch (err) { /* JSON以外は無視 */ }
   }
   const a = verifyIdToken_(token);
+  if (p.action === 'acl_request') return aclRequestHandle_(p, a);
   if (/^acl_/.test(p.action || '')) return aclHandle_(p.action, p, a);
   if (a.ok) return null;
   return jsonOut_({ status: 'error', success: false, ok: false, error: a.reason, data: a.reason, message: a.reason });
